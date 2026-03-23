@@ -12,7 +12,8 @@ const { execSync, spawn } = require('child_process');
 const HOME   = process.env.HOME || process.env.USERPROFILE;
 const VAULT  = path.join(HOME, 'Desktop', 'anchor-terminal', 'anchor-vault');
 const OLLAMA = 'http://localhost:11434';
-const MODEL  = 'llama3.2:3b';
+const DEFAULT_MODEL = 'llama3.2:3b';
+let   activeModel   = DEFAULT_MODEL; // loaded from memory on boot, changeable via /model
 const MEM_F  = path.join(VAULT, 'anchor-memory.json');
 const SES_F  = path.join(VAULT, 'anchor-session.json');
 const ANC_MD = path.join(VAULT, 'ANCHOR.md');
@@ -305,7 +306,7 @@ Last updated: ${today()}
 // ─── DEFAULTS ─────────────────────────────────────────────────────────────────
 const DEFAULT_MEM = () => ({
   entities: {}, preferences: {}, conversations: [], userDefined: [],
-  userName: '', anchorName: 'Anchor', role: '', goals: '',
+  userName: '', anchorName: 'Anchor', role: '', goals: '', model: DEFAULT_MODEL,
 });
 const DEFAULT_SES = () => ({ onboardingComplete: false, lastSession: null });
 
@@ -339,23 +340,24 @@ async function checkOllama() {
   ok('Ollama started.');
 }
 
-async function checkModel() {
+async function checkModel(modelName) {
+  const target = modelName || activeModel;
   const r = await fetch(`${OLLAMA}/api/tags`);
   const { models = [] } = await r.json();
-  if (models.some(m => m.name.startsWith('llama3.2:3b'))) { ok(`${MODEL} ready.`); return; }
-  sys(`Pulling ${MODEL} — this may take a few minutes...`);
+  if (models.some(m => m.name.startsWith(target))) { ok(`${target} ready.`); return; }
+  sys(`Pulling ${target} — this may take a few minutes...`);
   await new Promise((resolve, reject) => {
-    const p = spawn('ollama', ['pull', MODEL], { stdio: 'inherit' });
-    p.on('close', code => code === 0 ? resolve() : reject(new Error('Pull failed')));
+    const p = spawn('ollama', ['pull', target], { stdio: 'inherit' });
+    p.on('close', code => code === 0 ? resolve() : reject(new Error(`Pull failed for ${target}`)));
   });
-  ok(`${MODEL} ready.`);
+  ok(`${target} ready.`);
 }
 
 async function ollamaChat(messages) {
   const res = await fetch(`${OLLAMA}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: MODEL, messages, stream: true }),
+    body: JSON.stringify({ model: activeModel, messages, stream: true }),
   });
   if (!res.ok) throw new Error(`Ollama error: ${res.status}`);
   const reader  = res.body.getReader();
@@ -382,7 +384,7 @@ async function ollamaGenerate(prompt) {
   const res = await fetch(`${OLLAMA}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: MODEL, prompt, stream: false }),
+    body: JSON.stringify({ model: activeModel, prompt, stream: false }),
   });
   const data = await res.json();
   return data.response || '';
@@ -1013,6 +1015,25 @@ async function handleCommand(input, history, mem, ses) {
       break;
     }
 
+    case 'model': {
+      if (!args) {
+        console.log(c.cyan(`  Active model: ${activeModel}`));
+        console.log(c.grey('  Usage: /model [name]  e.g. /model deepseek-r1:7b'));
+        break;
+      }
+      sys(`Switching model to ${args}...`);
+      await checkOllama();
+      try {
+        await checkModel(args);
+        activeModel = args;
+        const m = loadMemory(); m.model = activeModel; saveMemory(m);
+        ok(`Model switched to ${activeModel}. Changes take effect on next message.`);
+      } catch (e) {
+        err(`Could not switch to ${args}: ${e.message}`);
+      }
+      break;
+    }
+
     case 'tone': {
       if (!args) { err('Usage: /tone [description]'); break; }
       let md = fs.readFileSync(ANC_MD, 'utf8');
@@ -1038,7 +1059,7 @@ async function handleCommand(input, history, mem, ses) {
       console.log(c.cyan(`  Vault:        ${VAULT}`));
       console.log(c.cyan(`  Notes:        ${count}`));
       console.log(c.cyan(`  Memory facts: ${mem.userDefined.length}`));
-      console.log(c.cyan(`  Model:        ${MODEL}`));
+      console.log(c.cyan(`  Model:        ${activeModel}`));
       console.log(c.cyan(`  Last session: ${ses.lastSession ? ses.lastSession.date + ' — ' + ses.lastSession.topic : 'None'}`));
       console.log(c.cyan(`  Privacy:      ✓ 100% local — zero data egress`));
       div();
@@ -1100,6 +1121,8 @@ async function handleCommand(input, history, mem, ses) {
   /digest                             Create daily digest
   /review                             Run weekly review
 
+  /model                              Show active model
+  /model [name]                       Switch model (pulls if not installed)
   /tone [description]                 Update Anchor's tone
   /status                             Show system status
   /vault                              Show vault path
@@ -1707,8 +1730,11 @@ async function main() {
 
   printBanner();
   await checkOllama();
-  await checkModel();
   createVault();
+  // Load saved model preference before checking/pulling
+  const bootMem = loadMemory();
+  if (bootMem.model) activeModel = bootMem.model;
+  await checkModel();
   buildIndex();
 
   const ses = loadSession();
