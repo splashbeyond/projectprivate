@@ -1,0 +1,16 @@
+{
+  "name": "anchor",
+  "version": "0.1.0",
+  "description": "Private AI workspace. 100% local. Zero data egress.",
+  "main": "anchor.js",
+  "bin": {
+    "anchor": "./anchor.js"
+  },
+  "scripts": {
+    "start": "node anchor.js",
+    "reset": "node anchor.js reset"
+  },
+  "dependencies": {
+    "minisearch": "^7.1.0"
+  }
+}

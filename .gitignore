@@ -1,0 +1,4 @@
+node_modules/
+
+# Live vault — contains personal user data, never commit
+anchor-vault/
