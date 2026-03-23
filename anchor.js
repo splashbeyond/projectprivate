@@ -10,7 +10,7 @@ const { execSync, spawn } = require('child_process');
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const HOME   = process.env.HOME || process.env.USERPROFILE;
-const VAULT  = path.join(HOME, 'Desktop', 'anchor-terminal', 'anchor-vault');
+const VAULT  = path.join(HOME, 'anchor-vault');
 const OLLAMA = 'http://localhost:11434';
 const DEFAULT_MODEL = 'llama3.2:3b';
 let   activeModel   = DEFAULT_MODEL; // loaded from memory on boot, changeable via /model
