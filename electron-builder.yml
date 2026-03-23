@@ -1,0 +1,22 @@
+appId: com.anchor.app
+productName: Anchor
+directories:
+  output: dist
+  buildResources: assets
+files:
+  - out/**/*
+  - package.json
+mac:
+  category: public.app-category.productivity
+  icon: assets/anchor-icon.png
+  target:
+    - dmg
+  extraResources:
+    - from: binaries/ollama-mac
+      to: ollama-mac
+dmg:
+  title: Anchor
+  background: assets/dmg-background.png
+  window:
+    width: 540
+    height: 380
