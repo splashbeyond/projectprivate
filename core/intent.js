@@ -200,6 +200,90 @@ const INTENTS = [
       require('./skills').runSkill('daily briefing', vaultPath),
   },
 
+  // ── RECALL ───────────────────────────────────────────────────────────────────
+  {
+    name: 'recall_topic',
+    patterns: [
+      /(?:recall|find) (?:our |the )?(?:chat|conversation|discussion) (?:about|on|regarding) (.+)/i,
+      /what (?:did we (?:talk|discuss)|was (?:discussed|said)) (?:about )?(.+)/i,
+      /remind me (?:what we (?:said|discussed) about|about our (?:chat|conversation) (?:about|on)) (.+)/i,
+      /do you remember (?:when we|our) (?:chat|talk|discussion) (?:about )?(.+)/i,
+    ],
+    extract: (m) => ({ topic: m[1].trim() }),
+    handle: async (args, vaultPath) => {
+      const { findRelevant } = require('./search')
+      const results = findRelevant('chat conversation ' + args.topic, 5)
+      if (!results) return `I don't have any past conversations about "${args.topic}" in my vault yet.`
+      return `Here's what I found in past conversations about **${args.topic}**:\n\n${results}`
+    },
+  },
+
+  // ── MEMORY CALENDAR ──────────────────────────────────────────────────────────
+  {
+    name: 'calendar_today',
+    patterns: [
+      /what did we talk about today/i,
+      /today(?:'s)? (?:log|summary|recap)/i,
+      /show (?:me )?today(?:'s)? (?:log|summary|chats)/i,
+    ],
+    extract: () => ({}),
+    handle: (_, vaultPath) => {
+      const { getDateSection, getTodayKey } = require('./daily-log')
+      const section = getDateSection(vaultPath, getTodayKey())
+      return section || "Nothing logged yet today — we're just getting started."
+    },
+  },
+
+  {
+    name: 'calendar_yesterday',
+    patterns: [
+      /what did we talk about yesterday/i,
+      /yesterday(?:'s)? (?:log|summary|recap)/i,
+      /show (?:me )?yesterday(?:'s)? (?:log|chats)/i,
+    ],
+    extract: () => ({}),
+    handle: (_, vaultPath) => {
+      const { getDateSection } = require('./daily-log')
+      const d = new Date()
+      d.setDate(d.getDate() - 1)
+      const dateStr = d.toISOString().split('T')[0]
+      const section = getDateSection(vaultPath, dateStr)
+      return section || `Nothing logged for ${dateStr}.`
+    },
+  },
+
+  {
+    name: 'calendar_date',
+    patterns: [
+      /what did we (?:talk|discuss|chat) (?:about )?on (.+)/i,
+      /show (?:me )?(?:the )?(?:log|summary|chats) (?:for|from) (.+)/i,
+      /what happened on (.+)/i,
+      /recap (?:from |of )?(.+)/i,
+    ],
+    extract: (m) => ({ dateInput: m[1] }),
+    handle: (args, vaultPath) => {
+      const { getDateSection, getDayLabel } = require('./daily-log')
+      // Try to parse natural date
+      const dateStr = parseDate(args.dateInput)
+      if (!dateStr) return `Couldn't understand the date "${args.dateInput}". Try "March 20" or "2026-03-20".`
+      const section = getDateSection(vaultPath, dateStr)
+      return section || `Nothing logged for ${dateStr} (${getDayLabel(dateStr)}).`
+    },
+  },
+
+  {
+    name: 'calendar_show',
+    patterns: [
+      /(?:show|open|view) (?:my )?memory calendar/i,
+      /open (?:the )?calendar/i,
+    ],
+    extract: () => ({}),
+    handle: (_, vaultPath) => {
+      const { readCalendar } = require('./daily-log')
+      return readCalendar(vaultPath)
+    },
+  },
+
   // ── STATUS ───────────────────────────────────────────────────────────────────
   {
     name: 'status',
@@ -226,6 +310,40 @@ const INTENTS = [
 ]
 
 const MODEL = 'llama3.2:3b'
+
+// Parse natural language dates like "Monday", "March 20", "last Tuesday", "2026-03-20"
+function parseDate(input) {
+  const s = input.trim().toLowerCase()
+  const today = new Date()
+
+  // ISO format
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+
+  // "last X" or day-of-week
+  const days = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
+  const dayIdx = days.findIndex(d => s.includes(d))
+  if (dayIdx !== -1) {
+    const d = new Date(today)
+    const diff = (today.getDay() - dayIdx + 7) % 7 || 7
+    d.setDate(today.getDate() - diff)
+    return d.toISOString().split('T')[0]
+  }
+
+  // Month name + day like "March 20" or "20 March"
+  const months = ['january','february','march','april','may','june','july','august','september','october','november','december']
+  const mIdx = months.findIndex(m => s.includes(m))
+  if (mIdx !== -1) {
+    const dayNum = parseInt(s.replace(/[^0-9]/g, ''), 10)
+    if (dayNum) {
+      const year = today.getFullYear()
+      const d = new Date(year, mIdx, dayNum)
+      if (d > today) d.setFullYear(year - 1)
+      return d.toISOString().split('T')[0]
+    }
+  }
+
+  return null
+}
 
 async function detectIntent(message, vaultPath) {
   for (const intent of INTENTS) {

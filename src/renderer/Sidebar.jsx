@@ -93,6 +93,21 @@ export default function Sidebar({
         </button>
       </div>
 
+      {/* ── Memory Calendar pinned link ── */}
+      <button
+        onClick={() => onOpenNote({ name: 'Memory-Calendar', relPath: 'Memory-Calendar.md' })}
+        className="flex items-center gap-2 w-full px-3 py-2 border-b border-anchor-border hover:bg-anchor-highlight transition-colors text-left"
+        title="Open Memory Calendar"
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4DA6FF" strokeWidth="2">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+          <line x1="16" y1="2" x2="16" y2="6" />
+          <line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+        <span className="text-xs text-anchor-body font-medium">Memory Calendar</span>
+      </button>
+
       {/* Search */}
       <div className="px-2.5 py-2">
         <div className="flex items-center gap-1.5 bg-anchor-canvas border border-anchor-border rounded-lg px-2.5 py-1.5">

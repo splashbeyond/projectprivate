@@ -33,6 +33,8 @@ const { ONBOARDING_SYSTEM, isOnboardingComplete,
         extractOnboardingData, writeOnboardingFiles } = CORE('onboarding')
 const { listChats, loadChat, saveChat, createChat,
         deleteChat, updateChatTitle } = CORE('chats')
+const { upsertEntry, generateEntryMeta,
+        readCalendar, getDateSection }  = CORE('daily-log')
 
 let mainWindow = null
 
@@ -98,7 +100,7 @@ app.whenReady().then(async () => {
     // 5. Watch vault for changes → re-index + notify renderer
     watchVault(VAULT_PATH, (event, filePath) => {
       reindexNote(VAULT_PATH)
-      if (mainWindow) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
         const relPath = path.relative(VAULT_PATH, filePath)
         mainWindow.webContents.send('anchor:vault-changed', { event, relPath })
       }
@@ -333,7 +335,9 @@ ipcMain.handle('anchor:chats-list',   () => listChats(VAULT_PATH))
 ipcMain.handle('anchor:chat-load',    (_, { id }) => loadChat(VAULT_PATH, id))
 ipcMain.handle('anchor:chat-new',     () => createChat(VAULT_PATH))
 ipcMain.handle('anchor:chat-delete',  (_, { id }) => { deleteChat(VAULT_PATH, id); return { ok: true } })
-ipcMain.handle('anchor:chat-save',    (_, { chat }) => saveChat(VAULT_PATH, chat))
+ipcMain.handle('anchor:chat-save', (_, { chat }) => {
+  return saveChat(VAULT_PATH, chat)
+})
 
 ipcMain.handle('anchor:chat-title', async (_, { id, messages }) => {
   const { askOllamaRaw } = CORE('ollama')
@@ -344,8 +348,29 @@ ipcMain.handle('anchor:chat-title', async (_, { id, messages }) => {
     )
     const clean = title.trim().replace(/^["']|["']$/g, '').slice(0, 60)
     updateChatTitle(VAULT_PATH, id, clean)
+
+    // Write daily log entry (non-blocking)
+    generateEntryMeta(messages).then(({ topics, summary }) => {
+      upsertEntry(VAULT_PATH, { chatId: id, chatTitle: clean, topics, summary })
+    }).catch(() => {})
+
     return clean
   } catch {
     return null
   }
+})
+
+// ── IPC: Memory Calendar ───────────────────────────────────────────────────────
+
+ipcMain.handle('anchor:calendar-read', () => {
+  const raw = readCalendar(VAULT_PATH)
+  return raw.replace(/<!--[^>]*-->/g, '').replace(/\n{3,}/g, '\n\n').trim()
+})
+ipcMain.handle('anchor:calendar-date', (_, { date }) => getDateSection(VAULT_PATH, date))
+
+ipcMain.handle('anchor:calendar-update', async (_, { id, title, messages }) => {
+  generateEntryMeta(messages).then(({ topics, summary }) => {
+    upsertEntry(VAULT_PATH, { chatId: id, chatTitle: title, topics, summary })
+  }).catch(() => {})
+  return { ok: true }
 })

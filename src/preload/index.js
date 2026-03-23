@@ -62,6 +62,11 @@ contextBridge.exposeInMainWorld('anchor', {
   chatSave:   (chat)         => ipcRenderer.invoke('anchor:chat-save',   { chat }),
   chatTitle:  (id, messages) => ipcRenderer.invoke('anchor:chat-title',  { id, messages }),
 
+  // ── Memory Calendar ─────────────────────────────────────────────────────────
+  calendarRead:   ()             => ipcRenderer.invoke('anchor:calendar-read'),
+  calendarDate:   (date)         => ipcRenderer.invoke('anchor:calendar-date',   { date }),
+  calendarUpdate: (id, title, messages) => ipcRenderer.invoke('anchor:calendar-update', { id, title, messages }),
+
   // ── System ──────────────────────────────────────────────────────────────────
   status:    () => ipcRenderer.invoke('anchor:status'),
   reset:     () => ipcRenderer.invoke('anchor:reset'),
