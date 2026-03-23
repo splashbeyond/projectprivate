@@ -3,47 +3,66 @@ import { marked } from 'marked'
 
 marked.setOptions({ breaks: true, gfm: true })
 
-export default function Chat({ anchorName, greeting, onOpenNote, vaultNotes }) {
+export default function Chat({ anchorName, greeting, onOpenNote, vaultNotes, activeChat, onChatUpdated }) {
   const [history,   setHistory]   = useState([])
   const [input,     setInput]     = useState('')
   const [thinking,  setThinking]  = useState(false)
   const [streaming, setStreaming] = useState('')
-  const bottomRef = useRef(null)
-  const inputRef  = useRef(null)
+  const bottomRef     = useRef(null)
+  const inputRef      = useRef(null)
+  const historyRef    = useRef(history)
+  const streamRef     = useRef(streaming)
+  const activeChatRef = useRef(activeChat)
 
-  // Refs to track state inside event callbacks
-  const historyRef  = useRef(history)
-  const streamRef   = useRef(streaming)
-  useEffect(() => { historyRef.current  = history  }, [history])
-  useEffect(() => { streamRef.current   = streaming }, [streaming])
+  useEffect(() => { historyRef.current    = history    }, [history])
+  useEffect(() => { streamRef.current     = streaming  }, [streaming])
+  useEffect(() => { activeChatRef.current = activeChat }, [activeChat])
 
-  // Greeting message on mount
+  // Load messages when active chat changes
   useEffect(() => {
-    if (greeting) {
-      setHistory([{ role: 'assistant', content: greeting }])
-    }
+    if (!activeChat) return
+    const msgs = activeChat.messages?.length
+      ? activeChat.messages
+      : (greeting ? [{ role: 'assistant', content: greeting }] : [])
+    setHistory(msgs)
+    historyRef.current = msgs
+    setStreaming('')
+    setInput('')
+    setTimeout(() => inputRef.current?.focus(), 50)
+  }, [activeChat?.id])
 
-    window.anchor.onToken((tok) => {
-      setStreaming(prev => prev + tok)
-    })
-    window.anchor.onTokenEnd(() => {
+  // Streaming listeners — set up once
+  useEffect(() => {
+    window.anchor.onToken((tok) => setStreaming(prev => prev + tok))
+
+    window.anchor.onTokenEnd(async () => {
       const response = streamRef.current
       setStreaming('')
       setThinking(false)
-      if (response) {
-        const updated = [...historyRef.current, { role: 'assistant', content: response }]
-        setHistory(updated)
-        historyRef.current = updated
+      if (!response) return
+
+      const updated = [...historyRef.current, { role: 'assistant', content: response }]
+      setHistory(updated)
+      historyRef.current = updated
+
+      const chat = activeChatRef.current
+      if (!chat) return
+
+      const saved = await window.anchor.chatSave({ ...chat, messages: updated })
+
+      // Auto-title after first exchange, only once
+      if (chat.title === 'New chat' && updated.length >= 2) {
+        const title = await window.anchor.chatTitle(chat.id, updated)
+        onChatUpdated({ ...saved, title: title || saved.title })
+      } else {
+        onChatUpdated(saved)
       }
     })
+
     window.anchor.onTokenErr((msg) => {
       setStreaming('')
       setThinking(false)
-      const updated = [...historyRef.current, {
-        role: 'assistant',
-        content: `Something went wrong: ${msg}`,
-        error: true,
-      }]
+      const updated = [...historyRef.current, { role: 'assistant', content: `Error: ${msg}`, error: true }]
       setHistory(updated)
     })
 
@@ -57,21 +76,12 @@ export default function Chat({ anchorName, greeting, onOpenNote, vaultNotes }) {
 
   async function send() {
     const msg = input.trim()
-    if (!msg || thinking) return
+    if (!msg || thinking || !activeChat) return
     setInput('')
-
-    // Handle /newchat
-    if (msg === '/newchat') {
-      setHistory([{ role: 'assistant', content: 'Starting fresh. I still remember everything.' }])
-      historyRef.current = []
-      return
-    }
-
-    const updated = [...history, { role: 'user', content: msg }]
+    const updated = [...historyRef.current, { role: 'user', content: msg }]
     setHistory(updated)
     historyRef.current = updated
     setThinking(true)
-
     window.anchor.chat(msg, updated.slice(-10))
   }
 
@@ -79,23 +89,17 @@ export default function Chat({ anchorName, greeting, onOpenNote, vaultNotes }) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
   }
 
-  // Render markdown with wikilink support
   function renderContent(content) {
-    // Convert [[Note]] to clickable spans before markdown parse
-    const withLinks = content.replace(/\[\[([^\]]+)\]\]/g, (_, name) => {
-      return `<span class="wikilink" data-note="${name}">${name}</span>`
-    })
+    const withLinks = content.replace(/\[\[([^\]]+)\]\]/g, (_, name) =>
+      `<span class="wikilink" data-note="${name}">${name}</span>`
+    )
     return { __html: marked(withLinks) }
   }
 
-  // Handle wikilink clicks in rendered HTML
   function handleContentClick(e) {
     const el = e.target.closest('.wikilink')
     if (!el) return
-    const noteName = el.dataset.note
-    const found = vaultNotes.find(n =>
-      n.name.toLowerCase() === noteName.toLowerCase()
-    )
+    const found = vaultNotes.find(n => n.name.toLowerCase() === el.dataset.note.toLowerCase())
     if (found) onOpenNote(found)
   }
 
@@ -107,6 +111,13 @@ export default function Chat({ anchorName, greeting, onOpenNote, vaultNotes }) {
     <div className="flex flex-col h-full">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+        {displayHistory.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full gap-2 opacity-40 select-none">
+            <span className="text-3xl">⚓</span>
+            <p className="text-sm text-anchor-body">Start a conversation</p>
+          </div>
+        )}
+
         {displayHistory.map((msg, i) => (
           <Message
             key={i}
@@ -125,7 +136,6 @@ export default function Chat({ anchorName, greeting, onOpenNote, vaultNotes }) {
             </div>
           </div>
         )}
-
         <div ref={bottomRef} />
       </div>
 
@@ -144,7 +154,7 @@ export default function Chat({ anchorName, greeting, onOpenNote, vaultNotes }) {
           />
           <button
             onClick={send}
-            disabled={!input.trim() || thinking}
+            disabled={!input.trim() || thinking || !activeChat}
             className="p-1.5 rounded-lg bg-anchor-brand text-white disabled:opacity-30 transition-opacity hover:opacity-90 shrink-0"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -161,9 +171,7 @@ export default function Chat({ anchorName, greeting, onOpenNote, vaultNotes }) {
 }
 
 function Message({ msg, anchorName, renderContent, onContentClick }) {
-  const isUser = msg.role === 'user'
-
-  if (isUser) {
+  if (msg.role === 'user') {
     return (
       <div className="flex justify-end">
         <div className="max-w-lg bg-anchor-brand text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm selectable leading-relaxed">
@@ -172,7 +180,6 @@ function Message({ msg, anchorName, renderContent, onContentClick }) {
       </div>
     )
   }
-
   return (
     <div className="flex items-start gap-3">
       <Avatar name={anchorName} />
@@ -185,9 +192,7 @@ function Message({ msg, anchorName, renderContent, onContentClick }) {
           onClick={onContentClick}
         />
         {msg.streaming && (
-          <div className="mt-1 ml-4">
-            <span className="inline-block w-1.5 h-3.5 bg-anchor-brand animate-pulse rounded-sm" />
-          </div>
+          <span className="inline-block w-1.5 h-3.5 bg-anchor-brand animate-pulse rounded-sm mt-1 ml-4" />
         )}
       </div>
     </div>
@@ -208,18 +213,10 @@ function ThinkingDots() {
   return (
     <div className="flex gap-1 items-center h-4">
       {[0, 1, 2].map(i => (
-        <div
-          key={i}
-          className="w-1.5 h-1.5 rounded-full bg-anchor-brand"
-          style={{ animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }}
-        />
+        <div key={i} className="w-1.5 h-1.5 rounded-full bg-anchor-brand"
+          style={{ animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }} />
       ))}
-      <style>{`
-        @keyframes bounce {
-          0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
-          40%            { transform: scale(1);   opacity: 1;   }
-        }
-      `}</style>
+      <style>{`@keyframes bounce{0%,80%,100%{transform:scale(0.6);opacity:.4}40%{transform:scale(1);opacity:1}}`}</style>
     </div>
   )
 }

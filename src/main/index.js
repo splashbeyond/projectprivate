@@ -31,6 +31,8 @@ const { startCron, stopCron } = CORE('cron')
 const { runMonitor, getSources, addFeed, addUrl, removeFeed } = CORE('monitor')
 const { ONBOARDING_SYSTEM, isOnboardingComplete,
         extractOnboardingData, writeOnboardingFiles } = CORE('onboarding')
+const { listChats, loadChat, saveChat, createChat,
+        deleteChat, updateChatTitle } = CORE('chats')
 
 let mainWindow = null
 
@@ -323,4 +325,27 @@ ipcMain.handle('anchor:reset', () => {
 ipcMain.handle('anchor:reset-hard', () => {
   hardResetVault(VAULT_PATH)
   return { ok: true }
+})
+
+// ── IPC: Chats ────────────────────────────────────────────────────────────────
+
+ipcMain.handle('anchor:chats-list',   () => listChats(VAULT_PATH))
+ipcMain.handle('anchor:chat-load',    (_, { id }) => loadChat(VAULT_PATH, id))
+ipcMain.handle('anchor:chat-new',     () => createChat(VAULT_PATH))
+ipcMain.handle('anchor:chat-delete',  (_, { id }) => { deleteChat(VAULT_PATH, id); return { ok: true } })
+ipcMain.handle('anchor:chat-save',    (_, { chat }) => saveChat(VAULT_PATH, chat))
+
+ipcMain.handle('anchor:chat-title', async (_, { id, messages }) => {
+  const { askOllamaRaw } = CORE('ollama')
+  const snippet = messages.slice(0, 2).map(m => `${m.role}: ${m.content.slice(0, 120)}`).join('\n')
+  try {
+    const title = await askOllamaRaw(
+      `Summarize this conversation in 4-5 words. Return ONLY the summary, nothing else.\n\n${snippet}`
+    )
+    const clean = title.trim().replace(/^["']|["']$/g, '').slice(0, 60)
+    updateChatTitle(VAULT_PATH, id, clean)
+    return clean
+  } catch {
+    return null
+  }
 })

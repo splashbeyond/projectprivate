@@ -54,6 +54,14 @@ contextBridge.exposeInMainWorld('anchor', {
   monitorRemove:    (url) => ipcRenderer.invoke('anchor:monitor-remove',     { url }),
   monitorRunNow:    ()    => ipcRenderer.invoke('anchor:monitor-run'),
 
+  // ── Chats ───────────────────────────────────────────────────────────────────
+  chatsList:  ()             => ipcRenderer.invoke('anchor:chats-list'),
+  chatLoad:   (id)           => ipcRenderer.invoke('anchor:chat-load',   { id }),
+  chatNew:    ()             => ipcRenderer.invoke('anchor:chat-new'),
+  chatDelete: (id)           => ipcRenderer.invoke('anchor:chat-delete', { id }),
+  chatSave:   (chat)         => ipcRenderer.invoke('anchor:chat-save',   { chat }),
+  chatTitle:  (id, messages) => ipcRenderer.invoke('anchor:chat-title',  { id, messages }),
+
   // ── System ──────────────────────────────────────────────────────────────────
   status:    () => ipcRenderer.invoke('anchor:status'),
   reset:     () => ipcRenderer.invoke('anchor:reset'),

@@ -8,32 +8,47 @@ import StatusBar  from './StatusBar'
 import Settings   from './Settings'
 
 export default function App() {
-  const [ready,    setReady]    = useState(false)
-  const [booting,  setBooting]  = useState(true)
-  const [onboarded, setOnboarded] = useState(false)
-  const [mode,     setMode]     = useState('chat')      // 'chat' | 'edit' | 'view' | 'settings'
-  const [activeNote, setActiveNote] = useState(null)    // { relPath, name }
+  const [booting,    setBooting]    = useState(true)
+  const [onboarded,  setOnboarded]  = useState(false)
+  const [mode,       setMode]       = useState('chat')
+  const [activeNote, setActiveNote] = useState(null)
   const [anchorName, setAnchorName] = useState('Anchor')
   const [greeting,   setGreeting]   = useState('')
   const [vaultNotes, setVaultNotes] = useState([])
+
+  // Chat state
+  const [chats,      setChats]      = useState([])
+  const [activeChat, setActiveChat] = useState(null)
 
   useEffect(() => {
     window.anchor.ready().then(({ onboardingComplete, greeting, anchorName }) => {
       setOnboarded(onboardingComplete)
       setGreeting(greeting)
       setAnchorName(anchorName || 'Anchor')
-      setReady(true)
       setBooting(false)
+
+      if (onboardingComplete) {
+        loadChats()
+      }
     })
 
-    // Listen for vault file changes
-    window.anchor.onVaultChange(() => {
-      refreshNotes()
-    })
+    window.anchor.onVaultChange(() => refreshNotes())
     refreshNotes()
-
     return () => window.anchor.offVaultChange()
   }, [])
+
+  async function loadChats() {
+    const list = await window.anchor.chatsList()
+    setChats(list)
+    // Auto-select most recent, or create first chat
+    if (list.length > 0) {
+      setActiveChat(list[0])
+    } else {
+      const fresh = await window.anchor.chatNew()
+      setChats([fresh])
+      setActiveChat(fresh)
+    }
+  }
 
   function refreshNotes() {
     window.anchor.vaultList().then(setVaultNotes)
@@ -49,34 +64,57 @@ export default function App() {
     setOnboarded(true)
     setMode('chat')
     refreshNotes()
+    loadChats()
+  }
+
+  // Called after every AI response — keeps sidebar in sync
+  function handleChatUpdated(updatedChat) {
+    setChats(prev => {
+      const exists = prev.find(c => c.id === updatedChat.id)
+      if (exists) return prev.map(c => c.id === updatedChat.id ? updatedChat : c)
+      return [updatedChat, ...prev]
+    })
+    setActiveChat(updatedChat)
+  }
+
+  async function handleNewChat() {
+    const fresh = await window.anchor.chatNew()
+    setChats(prev => [fresh, ...prev])
+    setActiveChat(fresh)
+    setMode('chat')
+  }
+
+  async function handleDeleteChat(id) {
+    await window.anchor.chatDelete(id)
+    const updated = chats.filter(c => c.id !== id)
+    setChats(updated)
+
+    if (activeChat?.id === id) {
+      if (updated.length > 0) {
+        setActiveChat(updated[0])
+      } else {
+        const fresh = await window.anchor.chatNew()
+        setChats([fresh])
+        setActiveChat(fresh)
+      }
+    }
   }
 
   if (booting) return <BootScreen />
 
   if (!onboarded) {
-    return (
-      <Onboarding
-        onComplete={handleOnboardingComplete}
-        anchorName={anchorName}
-      />
-    )
+    return <Onboarding onComplete={handleOnboardingComplete} anchorName={anchorName} />
   }
 
   return (
     <div className="flex flex-col h-screen bg-anchor-canvas">
-      {/* Title bar drag region */}
+      {/* Title bar */}
       <div
         className="h-10 flex items-center justify-between px-4 bg-anchor-canvas border-b border-anchor-border select-none"
         style={{ WebkitAppRegion: 'drag' }}
       >
-        {/* Traffic lights space */}
         <div className="w-16" />
-
-        {/* Tab bar */}
-        <div
-          className="flex items-center gap-1"
-          style={{ WebkitAppRegion: 'no-drag' }}
-        >
+        <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' }}>
           {[
             { id: 'chat',     label: 'Chat'     },
             { id: 'edit',     label: 'Edit'     },
@@ -95,7 +133,6 @@ export default function App() {
             </button>
           ))}
         </div>
-
         <div className="w-16" />
       </div>
 
@@ -106,6 +143,11 @@ export default function App() {
           activeNote={activeNote}
           onOpenNote={openNote}
           onNewNote={() => setMode('edit')}
+          chats={chats}
+          activeChat={activeChat}
+          onSelectChat={(chat) => { setActiveChat(chat); setMode('chat') }}
+          onNewChat={handleNewChat}
+          onDeleteChat={handleDeleteChat}
         />
 
         <main className="flex-1 flex flex-col overflow-hidden bg-anchor-canvas">
@@ -115,12 +157,14 @@ export default function App() {
               greeting={greeting}
               onOpenNote={openNote}
               vaultNotes={vaultNotes}
+              activeChat={activeChat}
+              onChatUpdated={handleChatUpdated}
             />
           )}
           {mode === 'edit' && (
             <Editor
               note={activeNote}
-              onSave={() => refreshNotes()}
+              onSave={refreshNotes}
               onViewNote={(note) => openNote(note, false)}
             />
           )}
@@ -131,9 +175,7 @@ export default function App() {
               onOpenNote={openNote}
             />
           )}
-          {mode === 'settings' && (
-            <Settings />
-          )}
+          {mode === 'settings' && <Settings />}
         </main>
       </div>
 
