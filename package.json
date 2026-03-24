@@ -11,10 +11,12 @@
   },
   "dependencies": {
     "chokidar": "^3.6.0",
+    "mammoth": "^1.12.0",
     "marked": "^12.0.0",
     "minisearch": "^7.1.0",
     "node-cron": "^3.0.3",
     "node-html-markdown": "^1.3.0",
+    "pdf-parse": "^2.4.5",
     "rss-parser": "^3.13.0"
   },
   "devDependencies": {

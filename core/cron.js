@@ -1,147 +1,181 @@
 'use strict'
 
+// Weekly synthesis Friday 5pm + user-defined scheduled skills.
+// This is the ONLY internal cron job. Everything else is event-driven.
+
 const cron = require('node-cron')
-const fs   = require('fs')
 const path = require('path')
+const fs   = require('fs')
+const { ollamaCall }  = require('./ollama-manager')
+const { writeFile, readVault } = require('./vault')
+const { logError, updateHealth } = require('./health')
+const { parseSkillsFile, executeSkill } = require('./skill-engine')
+const { buildContext, buildIndex }      = require('./context-builder')
 
-let vaultPath = null
-let tasks     = []
+const activeJobs   = new Map()
+let mainWindowRef  = null
+let vaultPathRef   = null
 
-function setVaultPath(p) { vaultPath = p }
-
-function today() { return new Date().toISOString().split('T')[0] }
-
-// ── Cron tasks ────────────────────────────────────────────────────────────────
-
-async function runDailyDigest() {
-  if (!vaultPath) return
-  const { askAnchor }  = require('./ollama')
-  const { findRelevant } = require('./search')
-  const ctx  = findRelevant('today notes updates')
-  const resp = await askAnchor(`Create a daily digest of today's notes and activity:\n\n${ctx}`, [])
-  const out  = path.join(vaultPath, 'Daily Digests', `${today()}.md`)
-  fs.writeFileSync(out, `# Daily Digest — ${today()}\n\n${resp}\n`, 'utf8')
+function init(vaultPath, mainWindow) {
+  vaultPathRef   = vaultPath
+  mainWindowRef  = mainWindow
 }
 
-async function runMorningBriefing() {
-  if (!vaultPath) return
-  const { runSkill }   = require('./skills')
-  const resp = await runSkill('daily briefing', vaultPath)
-  const out  = path.join(vaultPath, 'Morning Briefings', `${today()}.md`)
-  fs.mkdirSync(path.dirname(out), { recursive: true })
-  fs.writeFileSync(out, `# Morning Briefing — ${today()}\n\n${resp}\n`, 'utf8')
+// ── Weekly synthesis ──────────────────────────────────────────────────────────
+
+function startWeeklySynthesis(vaultPath) {
+  const job = cron.schedule('0 17 * * 5', async () => {
+    try {
+      const digestDir = path.join(vaultPath, 'Digests')
+      if (!fs.existsSync(digestDir)) return
+
+      const cutoff = new Date()
+      cutoff.setDate(cutoff.getDate() - 7)
+
+      const digests = fs.readdirSync(digestDir)
+        .filter(f => f.endsWith('.md'))
+        .filter(f => {
+          try { return new Date(f.replace('.md', '')) >= cutoff } catch { return false }
+        })
+        .sort()
+        .map(f => fs.readFileSync(path.join(digestDir, f), 'utf8'))
+        .join('\n\n---\n\n')
+
+      if (!digests.trim()) return
+
+      const synthesis = await ollamaCall([{
+        role: 'system',
+        content: `Synthesise this week into under 300 tokens.
+Accomplished, patterns observed, unresolved items, top 3 priorities for next week.
+Specific not general. Flag anything drifting from stated goals.`,
+      }, { role: 'user', content: digests }], 300)
+
+      const week = getWeekNumber()
+      writeFile(vaultPath, `Synthesis/${week}.md`,
+        `# Weekly synthesis — ${week}\n\n${synthesis}`
+      )
+      updateHealth('lastWeeklySynthesis', new Date().toISOString())
+
+    } catch (e) { logError('weeklySynthesis', e) }
+  })
+  activeJobs.set('weekly-synthesis', job)
 }
 
-async function runWeeklyReview() {
-  if (!vaultPath) return
-  const { runSkill } = require('./skills')
-  const resp = await runSkill('weekly review', vaultPath)
-  const out  = path.join(vaultPath, 'Weekly', `${today()}-review.md`)
-  fs.mkdirSync(path.dirname(out), { recursive: true })
-  fs.writeFileSync(out, `# Weekly Review — ${today()}\n\n${resp}\n`, 'utf8')
-}
+// ── Scheduled skills ──────────────────────────────────────────────────────────
 
-async function runWeeklyPriorities() {
-  if (!vaultPath) return
-  const { askAnchor }   = require('./ollama')
-  const { findRelevant } = require('./search')
-  const ctx  = findRelevant('goals priorities projects this week')
-  const resp = await askAnchor(`What should be my top priorities this week? Base it on my goals and active projects:\n\n${ctx}`, [])
-  const out  = path.join(vaultPath, 'Weekly', `${today()}-priorities.md`)
-  fs.mkdirSync(path.dirname(out), { recursive: true })
-  fs.writeFileSync(out, `# Weekly Priorities — ${today()}\n\n${resp}\n`, 'utf8')
-}
-
-async function runExtractTodos() {
-  if (!vaultPath) return
-  const { askOllamaStructured } = require('./ollama')
-  const { getNotesModifiedToday } = require('./vault')
-  const notes = getNotesModifiedToday(vaultPath)
-  if (!notes.length) return
-  const content = notes.map(n => n.content).join('\n\n---\n\n')
-  const todoPath = path.join(vaultPath, 'todolist.md')
-  const existing = fs.readFileSync(todoPath, 'utf8')
-  const resp = await askOllamaStructured(
-    'Extract all action items and tasks from these notes. Format each as: - [ ] [task]',
-    content,
-    '- [ ] [task] — [owner if mentioned] — [deadline if mentioned]'
-  )
-  // Append new items that don't already exist
-  const newItems = resp.split('\n')
-    .filter(line => line.startsWith('- [ ]'))
-    .filter(line => !existing.includes(line.slice(6, 30)))
-  if (newItems.length) {
-    fs.writeFileSync(todoPath, existing.replace('## Today\n', `## Today\n${newItems.join('\n')}\n`))
+function startScheduledSkills(vaultPath) {
+  const skills = parseSkillsFile(vaultPath)
+  for (const [name, skill] of Object.entries(skills)) {
+    if (!skill.schedule || skill.schedule === 'none') continue
+    if (!cron.validate(skill.schedule)) {
+      logError('startScheduledSkills',
+        new Error(`Invalid cron for "${name}": ${skill.schedule}`))
+      continue
+    }
+    registerSkillJob(name, skill, vaultPath)
   }
 }
 
-async function runMemoryConsolidation() {
-  if (!vaultPath) return
-  const { askOllamaStructured }  = require('./ollama')
-  const { readMemory, writeMemory } = require('./memory')
-  const { getNotesModifiedToday }   = require('./vault')
-
-  const memory    = readMemory(vaultPath)
-  const todayNotes = getNotesModifiedToday(vaultPath)
-  if (!todayNotes.length) return
-
-  const updated = await askOllamaStructured(
-    'Extract entities from today\'s activity and merge with existing memory. Return ONLY valid JSON.',
-    JSON.stringify({
-      existing:  memory,
-      todayNotes: todayNotes.map(n => ({ name: n.name, content: n.content.slice(0, 500) })),
-    }),
-    '{ "entities": {}, "userDefined": [] }'
-  )
-
-  try {
-    const parsed = JSON.parse(updated.match(/\{[\s\S]+\}/)?.[0] || '{}')
-    writeMemory(vaultPath, { ...memory, ...parsed })
-  } catch (e) {
-    console.error('Memory consolidation failed:', e.message)
-  }
+function registerSkillJob(name, skill, vaultPath) {
+  removeJob(name)
+  const job = cron.schedule(skill.schedule, async () => {
+    try {
+      const result = await executeSkill({ skill, params: {} }, vaultPath, buildContext)
+      buildIndex(readVault(vaultPath), vaultPath)
+      if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+        mainWindowRef.webContents.send('anchor-message', {
+          role: 'ai', text: `[Scheduled: ${skill.name}]\n\n${result}`, scheduled: true,
+        })
+      }
+    } catch (e) { logError(`scheduled:${name}`, e) }
+  })
+  activeJobs.set(name, job)
 }
 
-// ── Schedule all tasks ────────────────────────────────────────────────────────
+// ── Job management ────────────────────────────────────────────────────────────
 
-function startCron(vp) {
-  if (vp) vaultPath = vp
+function addJob(name, cronExpression, skillName, vaultPath) {
+  if (!cron.validate(cronExpression)) {
+    return { success: false, error: `Invalid cron: ${cronExpression}` }
+  }
+  const skills = parseSkillsFile(vaultPath)
+  const skill  = skills[skillName]
+  if (!skill) return { success: false, error: `Skill not found: ${skillName}` }
+  updateSkillSchedule(skillName, cronExpression, vaultPath)
+  registerSkillJob(name, { ...skill, schedule: cronExpression }, vaultPath)
+  return { success: true, message: `"${name}" scheduled: ${cronExpression}` }
+}
 
-  // Stop any existing tasks
-  tasks.forEach(t => t.stop())
-  tasks = []
+function pauseJob(name) {
+  const job = activeJobs.get(name)
+  if (!job) return { success: false, error: `No job: ${name}` }
+  job.stop()
+  return { success: true, message: `"${name}" paused` }
+}
 
-  // 6am daily — web monitor
-  tasks.push(cron.schedule('0 6 * * *', () => {
-    require('./monitor').runMonitor(vaultPath)
+function resumeJob(name) {
+  const job = activeJobs.get(name)
+  if (!job) return { success: false, error: `No job: ${name}` }
+  job.start()
+  return { success: true, message: `"${name}" resumed` }
+}
+
+function removeJob(name) {
+  const job = activeJobs.get(name)
+  if (job) { job.destroy(); activeJobs.delete(name) }
+}
+
+function listJobs() {
+  return [...activeJobs.entries()].map(([name, job]) => ({
+    name, running: job.running !== false,
   }))
+}
 
-  // 7am daily — morning briefing
-  tasks.push(cron.schedule('0 7 * * *', runMorningBriefing))
-
-  // 7am Monday — weekly priorities
-  tasks.push(cron.schedule('0 7 * * 1', runWeeklyPriorities))
-
-  // 5pm Friday — weekly review
-  tasks.push(cron.schedule('0 17 * * 5', runWeeklyReview))
-
-  // 11pm daily — daily digest
-  tasks.push(cron.schedule('0 23 * * *', runDailyDigest))
-
-  // 11:15pm daily — extract todos
-  tasks.push(cron.schedule('15 23 * * *', runExtractTodos))
-
-  // 11:30pm daily — memory consolidation
-  tasks.push(cron.schedule('30 23 * * *', runMemoryConsolidation))
+async function runJobNow(name, vaultPath) {
+  const skill = Object.values(parseSkillsFile(vaultPath))
+    .find(s => s.name === name || name.includes(s.name))
+  if (!skill) return `No skill found for: ${name}`
+  return executeSkill({ skill, params: {} }, vaultPath, buildContext)
 }
 
 function stopCron() {
-  tasks.forEach(t => t.stop())
-  tasks = []
+  for (const [name, job] of activeJobs) {
+    try { job.destroy() } catch {}
+  }
+  activeJobs.clear()
+}
+
+function updateSkillSchedule(skillName, schedule, vaultPath) {
+  const p = path.join(vaultPath, 'skills.md')
+  if (!fs.existsSync(p)) return
+  let content = fs.readFileSync(p, 'utf8')
+  content = content.replace(
+    new RegExp(`(## ${skillName}[\\s\\S]+?schedule: ).+`, 'm'),
+    (_, pre) => `${pre}${schedule}`
+  )
+  fs.writeFileSync(p, content)
+}
+
+function getWeekNumber() {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7)
+  const week1   = new Date(d.getFullYear(), 0, 4)
+  const weekNum = 1 + Math.round(
+    ((d.getTime() - week1.getTime()) / 86400000
+      - 3 + (week1.getDay() + 6) % 7) / 7
+  )
+  return `${d.getFullYear()}-W${String(weekNum).padStart(2, '0')}`
+}
+
+// Backward compat stubs for old cron.js callers
+const startCron = (vaultPath) => {
+  startWeeklySynthesis(vaultPath)
+  startScheduledSkills(vaultPath)
 }
 
 module.exports = {
-  startCron, stopCron, setVaultPath,
-  runDailyDigest, runMorningBriefing, runWeeklyReview,
-  runExtractTodos, runMemoryConsolidation,
+  init, startCron, stopCron,
+  startWeeklySynthesis, startScheduledSkills,
+  addJob, pauseJob, resumeJob, removeJob, listJobs, runJobNow,
 }
