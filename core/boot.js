@@ -2,10 +2,11 @@
 
 // Boot state machine — sends progress to renderer via IPC boot-status events.
 
-const { startOllama, ensureModel } = require('./ollama-manager')
-const { ensureVault, readVault }   = require('./vault')
-const { loadOrBuildIndex }         = require('./context-builder')
-const { logError }                 = require('./health')
+const { startOllama, ensureModel }   = require('./ollama-manager')
+const { configure: configureLlm, getModel } = require('./llm')
+const { ensureVault, readVault }     = require('./vault')
+const { loadOrBuildIndex }           = require('./context-builder')
+const { logError }                   = require('./health')
 
 async function bootSequence(mainWindow, vaultPath, ollamaBin) {
   const send = (step, message, progress) => {
@@ -15,14 +16,16 @@ async function bootSequence(mainWindow, vaultPath, ollamaBin) {
   }
 
   try {
-    send('ollama', 'Starting AI engine...', 15)
+    send('vault', 'Setting up your vault...', 10)
+    await ensureVault(vaultPath)
+
+    configureLlm(vaultPath)
+
+    send('ollama', 'Starting AI engine...', 25)
     await startOllama(ollamaBin)
 
-    send('model', `Loading llama3.2:3b...`, 35)
-    await ensureModel((msg) => send('model', msg, 35))
-
-    send('vault', 'Setting up your vault...', 55)
-    await ensureVault(vaultPath)
+    send('model', `Loading ${getModel()}...`, 45)
+    await ensureModel((msg) => send('model', msg, 45))
 
     send('index', 'Indexing your notes...', 75)
     loadOrBuildIndex(readVault(vaultPath), vaultPath)

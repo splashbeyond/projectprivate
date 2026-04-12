@@ -112,7 +112,7 @@ function getDateSection(vaultPath, dateStr) {
 
 // Use Ollama to generate topics + summary bullet points for a chat
 async function generateEntryMeta(messages) {
-  const { askOllamaRaw } = require('./ollama')
+  const { raw: llmRaw } = require('./llm')
   const snippet = messages.slice(-12)
     .map(m => `${m.role}: ${m.content.slice(0, 200)}`)
     .join('\n')
@@ -130,7 +130,7 @@ Conversation:
 ${snippet}`
 
   try {
-    const raw = await askOllamaRaw(prompt)
+    const raw = await llmRaw(prompt)
     const topicsMatch  = raw.match(/TOPICS:\s*(.+)/i)
     const summaryMatch = raw.match(/SUMMARY:\s*([\s\S]+)/i)
     const topics = topicsMatch

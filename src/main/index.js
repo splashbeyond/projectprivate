@@ -26,7 +26,8 @@ const { buildIndex, loadOrBuildIndex, reindexNote, findRelevant } = CORE('contex
 const { readMemory }  = CORE('vault')
 const { readSession } = CORE('vault')
 
-const { startOllama, stopOllama, ensureModel, ollamaCall, ollamaStream } = CORE('ollama-manager')
+const { startOllama, stopOllama, ensureModel } = CORE('ollama-manager')
+const { configure: configureLlm, getModel, call: llmCall, stream: llmStream } = CORE('llm')
 const { init: initHealth, getStatus } = CORE('health')
 const { detectIntent }   = CORE('intent')
 const { matchSkill, findSkill, learnSkill, analyzeForSkillOpportunities } = CORE('skill-engine')
@@ -102,7 +103,8 @@ app.whenReady().then(async () => {
     // 1. Ensure vault exists
     ensureVault(VAULT_PATH)
 
-    // 2. Start Ollama + ensure model
+    // 2. Configure LLM adapter, then start Ollama + ensure model
+    configureLlm(VAULT_PATH)
     await startOllama(OLLAMA_BIN)
     await ensureModel()
 
@@ -165,7 +167,7 @@ ipcMain.handle('anchor:ready', async () => {
   const mem = readMemory(VAULT_PATH)
   return {
     onboardingComplete: ses.onboardingComplete,
-    greeting:           await generateStartupBrief(VAULT_PATH),
+    greeting:           '',   // populated later via anchor:chat startup brief
     anchorName:         mem.anchorName || 'Anchor',
     userName:           mem.userName   || '',
   }
@@ -215,7 +217,7 @@ ipcMain.on('anchor:chat', async (event, { message, history }) => {
     ]
 
     let fullResponse = ''
-    await ollamaStream(msgs, (tok) => {
+    await llmStream(msgs, (tok) => {
       fullResponse += tok
       event.sender.send('anchor:token', tok)
     })
@@ -252,7 +254,7 @@ ipcMain.on('anchor:onboarding-chat', async (event, { message, history }) => {
       ...history.slice(-20),
       { role: 'user', content: message },
     ]
-    await ollamaStream(messages, (tok) => event.sender.send('anchor:token', tok))
+    await llmStream(messages, (tok) => event.sender.send('anchor:token', tok))
     event.sender.send('anchor:token-end')
   } catch (e) {
     event.sender.send('anchor:token-err', e.message)
@@ -315,7 +317,7 @@ ipcMain.handle('anchor:status', () => {
     notes:       notes.length,
     memoryFacts: (mem.userDefined || []).length,
     entityCount: Object.keys(mem.entities || {}).length,
-    model:       'llama3.2:3b',
+    model:       getModel(),
     lastSession: ses.lastSession,
     activeJobs:  listJobs(),
     privacy:     '100% local — zero data egress',
@@ -345,7 +347,7 @@ ipcMain.handle('anchor:chat-title', async (_, { id, messages }) => {
   const snippet = messages.slice(0, 2)
     .map(m => `${m.role}: ${m.content.slice(0, 120)}`).join('\n')
   try {
-    const title = await ollamaCall([{
+    const title = await llmCall([{
       role: 'user',
       content: `Summarize this conversation in 4-5 words. Return ONLY the summary, nothing else.\n\n${snippet}`,
     }], 20)

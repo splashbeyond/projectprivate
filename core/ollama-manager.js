@@ -1,17 +1,15 @@
 'use strict'
 
-// Ollama lifecycle + chat calls. Retry, 30s timeout, crash recovery.
-// Also exposes ollamaStream for streaming token output to the UI.
+// Ollama lifecycle — start, stop, model pull.
+// Inference calls have moved to llm.js (provider-agnostic).
+// ollamaCall / ollamaStream are kept here as thin shims for backwards compatibility.
 
 const { execSync, spawn } = require('child_process')
 const fs   = require('fs')
 const { logError, updateHealth } = require('./health')
+const { getModel, call: llmCall, stream: llmStream } = require('./llm')
 
-const MODEL      = 'llama3.2:3b'
 const OLLAMA_URL = 'http://127.0.0.1:11434'
-const TIMEOUT_MS = 30000
-const MAX_RETRIES = 3
-
 let ollamaProcess = null
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -55,14 +53,15 @@ async function startOllama(binaryPath) {
 }
 
 async function ensureModel(onProgress) {
+  const model = getModel()
   try {
     const r = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(5000) })
     const data = await r.json()
-    const has = data.models?.some(m => m.name.startsWith(MODEL))
+    const has = data.models?.some(m => m.name.startsWith(model))
     if (has) { updateHealth('ollamaStatus', 'ready'); return }
   } catch {}
 
-  if (onProgress) onProgress(`Downloading ${MODEL} (~2GB, one time only)...`)
+  if (onProgress) onProgress(`Downloading ${model} (~2GB, one time only)...`)
 
   await new Promise((resolve, reject) => {
     const bin = (() => {
@@ -70,7 +69,7 @@ async function ensureModel(onProgress) {
       return null
     })()
     if (!bin) return reject(new Error('Ollama not found'))
-    const pull = spawn(bin, ['pull', MODEL], { stdio: 'inherit' })
+    const pull = spawn(bin, ['pull', model], { stdio: 'inherit' })
     pull.on('close', (code) => {
       if (code === 0) resolve()
       else reject(new Error('Model pull failed'))
@@ -83,60 +82,10 @@ async function stopOllama() {
   if (ollamaProcess) { ollamaProcess.kill(); ollamaProcess = null }
 }
 
-// ── Chat (non-streaming) ──────────────────────────────────────────────────────
+// ── Shims — delegate to llm.js ────────────────────────────────────────────────
+// Kept so existing callers don't break. New code should import llm.js directly.
 
-async function ollamaCall(messages, maxTokens = null, attempt = 0) {
-  try {
-    const body = { model: MODEL, messages, stream: false }
-    if (maxTokens) body.options = { num_predict: maxTokens }
-
-    const res = await fetch(`${OLLAMA_URL}/api/chat`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(body),
-      signal:  AbortSignal.timeout(TIMEOUT_MS),
-    })
-
-    if (!res.ok) throw new Error(`Ollama returned ${res.status}`)
-    const data = await res.json()
-    return data.message?.content || ''
-
-  } catch (e) {
-    if (attempt < MAX_RETRIES) {
-      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
-      return ollamaCall(messages, maxTokens, attempt + 1)
-    }
-    logError('ollamaCall', e)
-    return 'I am having trouble thinking right now. Please try again in a moment.'
-  }
-}
-
-// ── Chat (streaming) ──────────────────────────────────────────────────────────
-
-async function ollamaStream(messages, onToken) {
-  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ model: MODEL, messages, stream: true }),
-    signal:  AbortSignal.timeout(TIMEOUT_MS),
-  })
-
-  if (!res.ok) throw new Error(`Ollama returned ${res.status}`)
-
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    const lines = decoder.decode(value).split('\n').filter(Boolean)
-    for (const line of lines) {
-      try {
-        const parsed = JSON.parse(line)
-        if (parsed.message?.content) onToken(parsed.message.content)
-      } catch {}
-    }
-  }
-}
+const ollamaCall   = (messages, maxTokens) => llmCall(messages, maxTokens)
+const ollamaStream = (messages, onToken)   => llmStream(messages, onToken)
 
 module.exports = { startOllama, stopOllama, ensureModel, ollamaCall, ollamaStream }

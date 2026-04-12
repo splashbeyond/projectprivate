@@ -3,7 +3,7 @@
 // Master pipeline: intent first → skills second → RAG chat last.
 // Two-step reasoning for complex queries.
 
-const { ollamaCall }  = require('./ollama-manager')
+const { call: llmCall } = require('./llm')
 const { buildContext } = require('./context-builder')
 const { detectIntent } = require('./intent')
 const { matchSkill, executeSkill } = require('./skill-engine')
@@ -25,7 +25,7 @@ function isSimpleQuery(msg) {
 
 async function compressHistory(history) {
   if (history.length < 6) return history
-  const summary = await ollamaCall([{
+  const summary = await llmCall([{
     role: 'system',
     content: 'Summarise this conversation in 2 sentences. What was discussed and what was decided.',
   }, {
@@ -45,7 +45,7 @@ async function checkContradictions(response, vaultPath) {
   if (!fs.existsSync(p)) return response
   const decisions = fs.readFileSync(p, 'utf8')
   if (!decisions.trim() || decisions.length < 50) return response
-  const check = await ollamaCall([{
+  const check = await llmCall([{
     role: 'system',
     content: 'Does this response contradict any past decision? Reply CONTRADICTION: [conflict] or CLEAR. Nothing else.',
   }, {
@@ -70,14 +70,14 @@ async function processQuery(message, vaultPath, history, memoryEngine) {
     const context           = buildContext(message, vaultPath)
 
     if (isSimpleQuery(message)) {
-      return await ollamaCall([
+      return await llmCall([
         { role: 'system', content: context },
         ...compressedHistory,
         { role: 'user', content: message },
       ])
     }
 
-    const plan = await ollamaCall([{
+    const plan = await llmCall([{
       role: 'system',
       content: 'Two sentences only: what is being asked, and what context matters most to answer it well.',
     }, {
@@ -85,7 +85,7 @@ async function processQuery(message, vaultPath, history, memoryEngine) {
       content: `Question: ${message}\nContext preview: ${context.slice(0, 400)}`,
     }], 100)
 
-    const response = await ollamaCall([
+    const response = await llmCall([
       { role: 'system', content: context },
       ...compressedHistory,
       { role: 'user', content: message },
