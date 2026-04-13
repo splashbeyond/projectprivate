@@ -71,6 +71,11 @@ contextBridge.exposeInMainWorld('anchor', {
   calendarDate:   (date)         => ipcRenderer.invoke('anchor:calendar-date',   { date }),
   calendarUpdate: (id, title, messages) => ipcRenderer.invoke('anchor:calendar-update', { id, title, messages }),
 
+  // ── Skills ──────────────────────────────────────────────────────────────────
+  skillsList:   ()                          => ipcRenderer.invoke('anchor:skills-list'),
+  skillCreate:  (name, triggers, instructions) => ipcRenderer.invoke('anchor:skill-create', { name, triggers, instructions }),
+  skillDelete:  (name)                      => ipcRenderer.invoke('anchor:skill-delete', { name }),
+
   // ── System ──────────────────────────────────────────────────────────────────
   status:    () => ipcRenderer.invoke('anchor:status'),
   reset:     () => ipcRenderer.invoke('anchor:reset'),

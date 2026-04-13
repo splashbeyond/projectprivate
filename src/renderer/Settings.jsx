@@ -3,14 +3,22 @@ import React, { useState, useEffect } from 'react'
 export default function Settings() {
   const [sources,    setSources]    = useState({ feeds: [], urls: [] })
   const [newUrl,     setNewUrl]     = useState('')
-  const [urlType,    setUrlType]    = useState('feed') // 'feed' | 'url'
+  const [urlType,    setUrlType]    = useState('feed')
   const [feedback,   setFeedback]   = useState('')
   const [resetting,  setResetting]  = useState(false)
   const [status,     setStatus]     = useState(null)
+  const [skills,     setSkills]     = useState([])
+
+  // New skill form state
+  const [skillName,    setSkillName]    = useState('')
+  const [skillTriggers, setSkillTriggers] = useState('')
+  const [skillInstr,   setSkillInstr]   = useState('')
+  const [skillSaving,  setSkillSaving]  = useState(false)
 
   useEffect(() => {
     window.anchor.monitorSources().then(setSources)
     window.anchor.status().then(setStatus)
+    window.anchor.skillsList().then(setSkills)
   }, [])
 
   function flash(msg) {
@@ -53,6 +61,26 @@ export default function Settings() {
     flash('Web monitor complete')
   }
 
+  async function createSkill() {
+    const name     = skillName.trim()
+    const triggers = skillTriggers.split(',').map(t => t.trim()).filter(Boolean)
+    const instr    = skillInstr.trim()
+    if (!name || !triggers.length || !instr) { flash('Name, triggers, and instructions are required'); return }
+    setSkillSaving(true)
+    await window.anchor.skillCreate(name, triggers, instr)
+    const updated = await window.anchor.skillsList()
+    setSkills(updated)
+    setSkillName(''); setSkillTriggers(''); setSkillInstr('')
+    setSkillSaving(false)
+    flash(`Skill "${name}" created`)
+  }
+
+  async function deleteSkill(name) {
+    await window.anchor.skillDelete(name)
+    setSkills(s => s.filter(sk => sk.name !== name))
+    flash(`Skill "${name}" deleted`)
+  }
+
   async function doReset() {
     if (!confirm('This will wipe memory and session and restart onboarding. Your notes will not be deleted. Continue?')) return
     setResetting(true)
@@ -75,7 +103,7 @@ export default function Settings() {
       {status && (
         <Section title="System">
           <div className="grid grid-cols-2 gap-2 text-sm">
-            <StatusRow label="Model"   value="llama3.2:3b" />
+            <StatusRow label="Model"   value={status.model || 'llama3.2:3b'} />
             <StatusRow label="Notes"   value={status.notes} />
             <StatusRow label="Memory facts" value={status.memoryFacts} />
             <StatusRow label="Privacy" value="100% local — zero egress" accent />
@@ -85,6 +113,77 @@ export default function Settings() {
           </div>
         </Section>
       )}
+
+      {/* Skills */}
+      <Section title="Skills">
+        <p className="text-xs text-anchor-body mb-4">
+          Skills are triggered by phrases you type. Anchor runs the instructions and returns the result.
+        </p>
+
+        {/* Existing skills */}
+        {skills.length > 0 && (
+          <div className="space-y-2 mb-5">
+            {skills.map(sk => (
+              <div key={sk.name} className="flex items-start justify-between gap-3 px-3 py-2.5 rounded-lg bg-anchor-sidebar border border-anchor-border">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-anchor-heading">{sk.name}</span>
+                    {sk.autoSuggested && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-anchor-brand/10 text-anchor-brand">auto</span>
+                    )}
+                    {sk.usageCount > 0 && (
+                      <span className="text-[10px] text-anchor-body">used {sk.usageCount}×</span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-anchor-body mt-0.5 truncate">
+                    Triggers: {sk.triggers.slice(0, 3).join(', ')}{sk.triggers.length > 3 ? '…' : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={() => deleteSkill(sk.name)}
+                  className="text-anchor-body hover:text-red-500 transition-colors shrink-0 mt-0.5"
+                  title="Delete skill"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Create skill form */}
+        <div className="space-y-2.5 p-3 rounded-lg border border-anchor-border bg-anchor-sidebar">
+          <p className="text-[11px] font-semibold text-anchor-heading uppercase tracking-wide">New skill</p>
+          <input
+            value={skillName}
+            onChange={e => setSkillName(e.target.value)}
+            placeholder="Name (e.g. summarise-meeting)"
+            className="w-full px-3 py-1.5 rounded-lg text-xs border border-anchor-border bg-anchor-canvas text-anchor-heading outline-none focus:border-anchor-brand transition-colors"
+          />
+          <input
+            value={skillTriggers}
+            onChange={e => setSkillTriggers(e.target.value)}
+            placeholder="Trigger phrases, comma separated (e.g. summarise meeting, meeting notes)"
+            className="w-full px-3 py-1.5 rounded-lg text-xs border border-anchor-border bg-anchor-canvas text-anchor-heading outline-none focus:border-anchor-brand transition-colors"
+          />
+          <textarea
+            value={skillInstr}
+            onChange={e => setSkillInstr(e.target.value)}
+            placeholder="Instructions — what should Anchor do when this skill runs?"
+            rows={4}
+            className="w-full px-3 py-1.5 rounded-lg text-xs border border-anchor-border bg-anchor-canvas text-anchor-heading outline-none focus:border-anchor-brand transition-colors resize-none"
+          />
+          <button
+            onClick={createSkill}
+            disabled={skillSaving}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-anchor-brand text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            {skillSaving ? 'Saving…' : 'Create skill'}
+          </button>
+        </div>
+      </Section>
 
       {/* Web monitor */}
       <Section title="Web Monitor">

@@ -379,6 +379,43 @@ ipcMain.handle('anchor:chat-title', async (_, { id, messages }) => {
   }
 })
 
+// ── IPC: Skills ───────────────────────────────────────────────────────────────
+
+ipcMain.handle('anchor:skills-list', () => {
+  const { parseSkillsFile } = CORE('skill-engine')
+  return Object.values(parseSkillsFile(VAULT_PATH)).map(s => ({
+    name:         s.name,
+    triggers:     s.triggers,
+    instructions: s.instructions,
+    usageCount:   s.usageCount || 0,
+    schedule:     s.schedule || 'none',
+    autoSuggested: s.autoSuggested || false,
+  }))
+})
+
+ipcMain.handle('anchor:skill-create', (_, { name, triggers, instructions }) => {
+  const { learnSkill } = CORE('skill-engine')
+  const result = learnSkill(VAULT_PATH, name, triggers, instructions)
+  reindexNote(VAULT_PATH)
+  return { ok: true, result }
+})
+
+ipcMain.handle('anchor:skill-delete', (_, { name }) => {
+  const fs   = require('fs')
+  const path = require('path')
+  const p    = path.join(VAULT_PATH, 'skills.md')
+  if (!fs.existsSync(p)) return { ok: false }
+  let content = fs.readFileSync(p, 'utf8')
+  // Remove the skill block — from its ## heading to the next --- or end of file
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  content = content.replace(
+    new RegExp(`\\n---\\n\\n## ${escaped}[\\s\\S]+?(?=\\n---\\n|$)`, 'g'), ''
+  )
+  fs.writeFileSync(p, content)
+  reindexNote(VAULT_PATH)
+  return { ok: true }
+})
+
 // ── IPC: Memory Calendar ──────────────────────────────────────────────────────
 
 ipcMain.handle('anchor:calendar-read', () => {
