@@ -261,44 +261,22 @@ const INTENTS = [
       /show (?:me )?(?:our )?(?:chat|conversation|discussion) about (.+)/i,
     ],
     handle: (m, vaultPath) => {
-      const fs   = require('fs')
-      const path = require('path')
-      const topic    = m[1].trim()
-      const keywords = topic.toLowerCase().split(/\s+/).filter(w => w.length > 2)
-      const chatsDir = path.join(vaultPath, 'Chats')
+      const topic   = m[1].trim()
+      const { searchIndex, readIndex } = require('./recall-index')
 
-      if (!fs.existsSync(chatsDir)) return `No chat history yet.`
-
-      const files = fs.readdirSync(chatsDir).filter(f => f.endsWith('.md'))
-      if (!files.length) return `No chat history yet.`
-
-      const scored = files
-        .map(f => {
-          try {
-            const content = fs.readFileSync(path.join(chatsDir, f), 'utf8')
-            const lower   = content.toLowerCase()
-            const score   = keywords.filter(w => lower.includes(w)).length
-            return { name: f.replace('.md', ''), content, score }
-          } catch { return null }
-        })
-        .filter(r => r && r.score > 0)
-        .sort((a, b) => b.score - a.score)
-
-      if (!scored.length) return `No chats found mentioning "${topic}".`
-
-      const best  = scored[0]
-      const lines = best.content.split('\n')
-      let start   = 0
-      if (lines[0] === '---') {
-        const end = lines.indexOf('---', 1)
-        if (end !== -1) start = end + 1
+      // Primary: search pre-digested recall index (compact, no noise)
+      const matches = searchIndex(vaultPath, topic, 5)
+      if (matches.length) {
+        const header = matches.length === 1
+          ? `Found 1 past conversation about "${topic}":`
+          : `Found ${matches.length} past conversations about "${topic}":`
+        return `${header}\n\n${matches.join('\n\n')}`
       }
-      const body = lines.slice(start).join('\n').trim().slice(0, 1500)
-      const tail = scored.length > 1
-        ? `\n\n(${scored.length - 1} other match${scored.length > 2 ? 'es' : ''} also found)`
-        : ''
 
-      return `**"${best.name}"**\n\n${body}${tail}`
+      // Fallback: check if index exists at all
+      const index = readIndex(vaultPath)
+      if (!index.entries.length) return `No chat history indexed yet. Start some conversations and they'll appear here.`
+      return `No past conversations found about "${topic}".`
     },
   },
   {
@@ -356,7 +334,7 @@ const INTENTS = [
         `Vault: ${notes.length} notes`,
         `Memory: ${(memory.userDefined || []).length} remembered facts`,
         `Entities: ${Object.keys(memory.entities || {}).length} known`,
-        `Model: llama3.2:3b`,
+        `Model: ${require('./llm').getModel()}`,
         `Last memory update: ${s.lastMemoryConsolidation}`,
         `Privacy: 100% local — zero data egress`,
       ].join('\n')

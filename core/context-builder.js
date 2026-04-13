@@ -160,11 +160,32 @@ function getPeopleContext(query, vaultPath) {
   } catch (e) { logError('getPeopleContext', e); return '' }
 }
 
+// Detect if a query is asking about past conversations or history
+function isPastQuery(query) {
+  return /\b(we|our|discussed|talked|said|mentioned|last time|before|remember|recall|conversation|chat|told|asked)\b/i.test(query)
+}
+
+function buildRecallContext(query, vaultPath) {
+  try {
+    const { searchIndex, getRecent } = require('./recall-index')
+    // Always include last 3 chats as lightweight recent context
+    const recent  = getRecent(vaultPath, 3)
+    // If query looks like a past-context question, also search for relevant chats
+    const matches = isPastQuery(query) ? searchIndex(vaultPath, query, 3) : []
+
+    const parts = []
+    if (recent.length)  parts.push(`Recent chats:\n${recent.join('\n')}`)
+    if (matches.length) parts.push(`Relevant past chats:\n${matches.join('\n')}`)
+    return parts.join('\n\n')
+  } catch { return '' }
+}
+
 function buildContext(query, vaultPath) {
   try {
     const identity  = readFile(vaultPath, 'identity.md') || ''
     const now       = readFile(vaultPath, 'now.md') || ''
     const memory    = buildMemoryContext(vaultPath)
+    const recall    = buildRecallContext(query, vaultPath)
     const vault     = buildVaultContext(query)
     const people    = queryMentionsPerson(query, vaultPath)
       ? getPeopleContext(query, vaultPath) : ''
@@ -180,10 +201,12 @@ function buildContext(query, vaultPath) {
       identity,
       now       ? `\nCURRENT STATE:\n${now}` : '',
       memory    ? `\nMEMORY:\n${memory}` : '',
+      recall    ? `\nCONVERSATION HISTORY:\n${recall}` : '',
       people    ? `\nPEOPLE:\n${people}` : '',
       skillContext ? `\n${skillContext}` : '',
       vault     ? `\nVAULT:\n${vault}` : '',
       '\nPRIVACY: Closed local system. Nothing leaves this machine.',
+      '\nBEHAVIOR RULES — non-negotiable:\n- Do exactly what was asked. Nothing more.\n- Never add items to lists, logs, files, or todos unless explicitly instructed.\n- Never announce that something was saved, remembered, or logged unless the user asked.\n- If the user shares a personal fact (favorite color, preference, opinion, etc.), acknowledge it naturally. The system handles memory silently.\n- Minimum action principle: if the user asks you to create or add something, only include what they explicitly mentioned. Do not fill in extra items, suggest additions inline, or expand scope on your own.\n- After completing a task that could naturally be extended (a list, a plan, a note), offer once: "Want me to add more?" — do not add more without asking.\n- Never assume the user wants suggestions unless they ask for them.',
     ].filter(Boolean).join('\n')
 
   } catch (e) {

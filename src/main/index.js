@@ -49,6 +49,7 @@ const {
 // Chats + calendar — kept from v1 (not in spec scope)
 const { listChats, loadChat, saveChat, createChat, deleteChat, updateChatTitle } = CORE('chats')
 const { upsertEntry, generateEntryMeta, readCalendar, getDateSection } = CORE('daily-log')
+const { updateIndex: updateRecallIndex } = CORE('recall-index')
 
 let mainWindow   = null
 let memoryEngine = null
@@ -354,7 +355,9 @@ ipcMain.handle('anchor:chat-title', async (_, { id, messages }) => {
     const clean = title.trim().replace(/^["']|["']$/g, '').slice(0, 60)
     updateChatTitle(VAULT_PATH, id, clean)
     generateEntryMeta(messages).then(({ topics, summary }) => {
+      const date = new Date().toISOString().split('T')[0]
       upsertEntry(VAULT_PATH, { chatId: id, chatTitle: clean, topics, summary })
+      updateRecallIndex(VAULT_PATH, { chatId: id, title: clean, date, topics, summary })
     }).catch(() => {})
     return clean
   } catch {
