@@ -71,9 +71,8 @@ Rules:
         entities.projects.filter(p => typeof p === 'string')
           .forEach(p => this.appendProjectLog(p, text))
       }
-      if (entities.deadlines?.length) {
-        entities.deadlines.forEach(d => this.addToNow(d))
-      }
+      // Deadlines intentionally not written to now.md — model extraction is
+      // too noisy and corrupts user-owned tasks. Use todo_add intent instead.
       this.updateEntityIndex(entities)
     })
     .catch(e => logError('extractEntitiesAsync', e))
@@ -110,14 +109,15 @@ Bullet points. Specific not general.`,
 
   resetIdleTimer() {
     clearTimeout(this.idleTimer)
-    this.idleTimer = setTimeout(() => this.runIdleUpdate(), 45000)
+    // Idle: only consolidate memory (entities/facts). Never touch now.md on idle —
+    // the model rewrites it with hallucinated content. now.md is user-owned data.
+    this.idleTimer = setTimeout(() => this.runIdleUpdate(), 300000) // 5 min
   }
 
   async runIdleUpdate() {
     if (this.isProcessing) return
     this.isProcessing = true
     try {
-      await this.rewriteNow()
       await this.consolidateMemory()
       updateHealth('lastIdleUpdate', new Date().toISOString())
     } catch (e) { logError('runIdleUpdate', e) }
@@ -125,32 +125,40 @@ Bullet points. Specific not general.`,
   }
 
   async rewriteNow() {
-    const current = this.readNow()
-    const digest  = this.getLatestDigest()
-    if (!digest && !current) return
+    // PROTECTED: never let the model overwrite user tasks in ## This week.
+    // Model only synthesises ## Active projects and ## Waiting on from digest.
+    const digest = this.getLatestDigest()
+    const today  = new Date().toISOString().split('T')[0]
 
-    const today    = new Date().toISOString().split('T')[0]
-    const combined = [current || '', digest || ''].join('\n')
+    // Preserve all existing checkbox lines — these are user-owned
+    const nowPath = path.join(this.vaultPath, 'now.md')
+    const existing = fs.existsSync(nowPath) ? fs.readFileSync(nowPath, 'utf8') : ''
+    const taskLines = existing.split('\n')
+      .filter(l => /^- \[[ x]\]/.test(l))
+      .join('\n')
 
-    const [tasks, projects, waiting] = await Promise.all([
+    if (!digest) {
+      // No digest yet — just rewrite with existing tasks preserved
+      writeFile(this.vaultPath, 'now.md',
+        `# Now — ${today}\n\n## This week\n${taskLines || '- No open tasks'}\n\n## Active projects\n- Anchor AI\n\n## Waiting on\n- Nothing waiting\n`
+      )
+      return
+    }
+
+    const [projects, waiting] = await Promise.all([
       ollamaCall([{
         role: 'system',
-        content: 'Extract open tasks only. Return as: - [ ] [task] — [project if known] — due [date if known]. Max 5. Nothing else.',
-      }, { role: 'user', content: combined }], 150),
+        content: 'List active projects only. One bullet per line: - [name]. Max 5. Nothing else.',
+      }, { role: 'user', content: digest }], 80),
 
       ollamaCall([{
         role: 'system',
-        content: 'List active projects only. One line: [project]: [status]. Max 5. Nothing else.',
-      }, { role: 'user', content: combined }], 100),
-
-      ollamaCall([{
-        role: 'system',
-        content: 'List items waiting on others only. Format: - [item] — waiting for [person]. Empty string if none.',
-      }, { role: 'user', content: combined }], 80),
+        content: 'List items waiting on others. Format: - [item] — [person]. Return only "- Nothing waiting" if none. Nothing else.',
+      }, { role: 'user', content: digest }], 60),
     ])
 
     writeFile(this.vaultPath, 'now.md',
-      `# Now — ${today}\n\n## This week\n${tasks.trim() || '- No open tasks'}\n\n## Active projects\n${projects.trim() || '- No active projects'}\n\n## Waiting on\n${waiting.trim() || '- Nothing waiting'}\n`
+      `# Now — ${today}\n\n## This week\n${taskLines || '- No open tasks'}\n\n## Active projects\n${projects.trim() || '- No active projects'}\n\n## Waiting on\n${waiting.trim() || '- Nothing waiting'}\n`
     )
     updateHealth('lastNowRewrite', new Date().toISOString())
   }
