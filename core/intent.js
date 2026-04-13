@@ -300,6 +300,114 @@ const INTENTS = [
     },
   },
   {
+    name: 'reminder_set',
+    patterns: [
+      /^remind me (?:to|about) (.+?) (?:at|in) (.+)/i,
+      /^set (?:a )?reminder (?:to|for|about) (.+?) (?:at|in) (.+)/i,
+      /^remind me (?:to|about) (.+?) (tomorrow(?: at .+)?)/i,
+    ],
+    handle: (m, vaultPath) => {
+      const text    = m[1].trim()
+      const timeStr = m[2].trim().toLowerCase()
+
+      // Parse delay in ms from natural language time expression
+      let delayMs = null
+      let displayTime = timeStr
+
+      // "in N minutes/hours"
+      const inMatch = timeStr.match(/^in (\d+)\s*(min(?:ute)?s?|hours?|h|m)$/)
+      if (inMatch) {
+        const n    = parseInt(inMatch[1])
+        const unit = inMatch[2]
+        delayMs    = unit.startsWith('h') ? n * 3600000 : n * 60000
+        displayTime = timeStr
+      }
+
+      // "at HH:MM" or "at H:MMam/pm"
+      const atMatch = timeStr.match(/^(?:at )?(\d{1,2}):(\d{2})\s*(am|pm)?$/)
+      if (!delayMs && atMatch) {
+        let h = parseInt(atMatch[1])
+        const min = parseInt(atMatch[2])
+        const ampm = atMatch[3]
+        if (ampm === 'pm' && h < 12) h += 12
+        if (ampm === 'am' && h === 12) h = 0
+        const target = new Date()
+        target.setHours(h, min, 0, 0)
+        if (target <= new Date()) target.setDate(target.getDate() + 1)
+        delayMs = target - Date.now()
+        displayTime = `${atMatch[1]}:${atMatch[2]}${ampm ? ampm : ''}`
+      }
+
+      // "tomorrow" or "tomorrow at HH:MM"
+      if (!delayMs && timeStr.startsWith('tomorrow')) {
+        const tomorrowAt = timeStr.match(/tomorrow at (\d{1,2}):(\d{2})\s*(am|pm)?/)
+        const target = new Date()
+        target.setDate(target.getDate() + 1)
+        if (tomorrowAt) {
+          let h = parseInt(tomorrowAt[1])
+          const min = parseInt(tomorrowAt[2])
+          const ampm = tomorrowAt[3]
+          if (ampm === 'pm' && h < 12) h += 12
+          if (ampm === 'am' && h === 12) h = 0
+          target.setHours(h, min, 0, 0)
+        } else {
+          target.setHours(9, 0, 0, 0)   // default 9am tomorrow
+        }
+        delayMs = target - Date.now()
+        displayTime = target.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + ' tomorrow'
+      }
+
+      if (!delayMs || delayMs <= 0) {
+        return `Couldn't parse that time. Try: "remind me to call John at 3:00pm" or "remind me to review in 30 minutes".`
+      }
+
+      // Persist to vault so restarts can reload it
+      const remindersPath = path.join(vaultPath, 'reminders.json')
+      let reminders = []
+      try {
+        if (fs.existsSync(remindersPath)) {
+          reminders = JSON.parse(fs.readFileSync(remindersPath, 'utf8'))
+        }
+      } catch {}
+      const id    = Date.now().toString()
+      const fireAt = new Date(Date.now() + delayMs).toISOString()
+      reminders.push({ id, text, fireAt })
+      reminders = reminders.filter(r => new Date(r.fireAt) > new Date())
+      try { fs.writeFileSync(remindersPath, JSON.stringify(reminders, null, 2)) } catch {}
+
+      // Fire in-process timeout — works for same session
+      const { _fireReminder } = require('./reminder-scheduler')
+      _fireReminder(id, text, delayMs, vaultPath)
+
+      const mins = Math.round(delayMs / 60000)
+      return `Reminder set: "${text}" — ${displayTime} (${mins < 60 ? `${mins} min` : `${Math.round(mins/60)}h`} from now)`
+    },
+  },
+  {
+    name: 'reminder_list',
+    patterns: [
+      /^(?:show|list|what are) (?:my )?reminders?/i,
+      /^what reminders? do i have/i,
+    ],
+    handle: (_, vaultPath) => {
+      const remindersPath = path.join(vaultPath, 'reminders.json')
+      if (!fs.existsSync(remindersPath)) return 'No reminders set.'
+      try {
+        const reminders = JSON.parse(fs.readFileSync(remindersPath, 'utf8'))
+          .filter(r => new Date(r.fireAt) > new Date())
+        if (!reminders.length) return 'No active reminders.'
+        return 'Active reminders:\n' + reminders.map(r => {
+          const d   = new Date(r.fireAt)
+          const min = Math.round((d - Date.now()) / 60000)
+          const when = min < 60
+            ? `in ${min}min`
+            : `at ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+          return `- "${r.text}" — ${when}`
+        }).join('\n')
+      } catch { return 'Could not read reminders.' }
+    },
+  },
+  {
     name: 'briefing',
     patterns: [
       /(?:give me|what(?:'s| is)) (?:my |the )?(?:morning |daily )?briefing/i,

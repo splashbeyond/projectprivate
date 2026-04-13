@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld('anchor', {
     ipcRenderer.removeAllListeners('anchor:token-err')
   },
 
+  // ── Reminders ───────────────────────────────────────────────────────────────
+  onReminder:  (fn) => ipcRenderer.on('anchor:reminder', (_, r) => fn(r)),
+  offReminder: ()   => ipcRenderer.removeAllListeners('anchor:reminder'),
+
   // ── Onboarding ──────────────────────────────────────────────────────────────
   onboardingChat:   (message, history) => ipcRenderer.send('anchor:onboarding-chat', { message, history }),
   onboardingFinish: (history) => ipcRenderer.invoke('anchor:onboarding-finish', { history }),

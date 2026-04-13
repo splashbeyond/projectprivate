@@ -50,6 +50,10 @@ const {
 const { listChats, loadChat, saveChat, createChat, deleteChat, updateChatTitle } = CORE('chats')
 const { upsertEntry, generateEntryMeta, readCalendar, getDateSection } = CORE('daily-log')
 const { updateIndex: updateRecallIndex } = CORE('recall-index')
+const {
+  setMainWindow: setReminderWindow,
+  loadPersistedReminders,
+} = CORE('reminder-scheduler')
 
 let mainWindow   = null
 let memoryEngine = null
@@ -104,6 +108,8 @@ app.whenReady().then(async () => {
     // 1. Ensure vault exists, roll over now.md if it's a new day
     ensureVault(VAULT_PATH)
     rolloverNow(VAULT_PATH)
+    setReminderWindow(mainWindow)
+    loadPersistedReminders(VAULT_PATH)
 
     // 2. Configure LLM adapter, then start Ollama + ensure model
     configureLlm(VAULT_PATH)
@@ -167,11 +173,18 @@ app.on('before-quit', async () => {
 ipcMain.handle('anchor:ready', async () => {
   const ses = readSession(VAULT_PATH)
   const mem = readMemory(VAULT_PATH)
+
+  // Generate startup brief in parallel with window load
+  let greeting = ''
+  if (ses.onboardingComplete) {
+    try { greeting = await generateStartupBrief(VAULT_PATH) } catch {}
+  }
+
   return {
     onboardingComplete: ses.onboardingComplete,
-    greeting:           '',   // populated later via anchor:chat startup brief
-    anchorName:         mem.anchorName || 'Anchor',
-    userName:           mem.userName   || '',
+    greeting,
+    anchorName: mem.anchorName || 'Anchor',
+    userName:   mem.userName   || '',
   }
 })
 

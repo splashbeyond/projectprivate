@@ -73,6 +73,16 @@ function parseSkillBlock(block) {
 
 // ── Match ─────────────────────────────────────────────────────────────────────
 
+// Word-overlap score: what fraction of trigger words appear in the query.
+// Score of 1.0 = exact match. Threshold 0.6 catches paraphrasing.
+function triggerScore(query, trigger) {
+  const qWords = new Set(query.toLowerCase().split(/\W+/).filter(w => w.length > 1))
+  const tWords = trigger.toLowerCase().split(/\W+/).filter(w => w.length > 1)
+  if (!tWords.length) return 0
+  const hits = tWords.filter(w => qWords.has(w)).length
+  return hits / tWords.length
+}
+
 function matchSkill(message, vaultPath) {
   const skills = parseSkillsFile(vaultPath)
   const lower  = message.toLowerCase()
@@ -84,14 +94,24 @@ function matchSkill(message, vaultPath) {
     return { skill, params: extractParams(runMatch[2] || '', skill) }
   }
 
+  let bestScore = 0.59   // minimum threshold — below this is noise
+  let bestMatch = null
+
   for (const skill of Object.values(skills)) {
     for (const trigger of skill.triggers) {
+      // Fast path: exact substring still works
       if (lower.includes(trigger)) {
         return { skill, params: extractParams(message, skill) }
       }
+      // Word-overlap scoring for paraphrases
+      const score = triggerScore(lower, trigger)
+      if (score > bestScore) {
+        bestScore = score
+        bestMatch = { skill, params: extractParams(message, skill) }
+      }
     }
   }
-  return null
+  return bestMatch
 }
 
 // Also expose as findSkill for backward compat

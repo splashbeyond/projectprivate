@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Component } from 'react'
+import React, { useState, useEffect, Component, useRef } from 'react'
 import Onboarding from './Onboarding'
 import Chat       from './Chat'
 import Editor     from './Editor'
@@ -15,6 +15,8 @@ export default function App() {
   const [anchorName, setAnchorName] = useState('Anchor')
   const [greeting,   setGreeting]   = useState('')
   const [vaultNotes, setVaultNotes] = useState([])
+  const [reminder,   setReminder]   = useState(null)
+  const reminderTimer = useRef(null)
 
   // Chat state
   const [chats,      setChats]      = useState([])
@@ -34,7 +36,17 @@ export default function App() {
 
     window.anchor.onVaultChange(() => refreshNotes())
     refreshNotes()
-    return () => window.anchor.offVaultChange()
+
+    window.anchor.onReminder(({ text }) => {
+      setReminder(text)
+      clearTimeout(reminderTimer.current)
+      reminderTimer.current = setTimeout(() => setReminder(null), 12000)
+    })
+
+    return () => {
+      window.anchor.offVaultChange()
+      window.anchor.offReminder()
+    }
   }, [])
 
   async function loadChats() {
@@ -186,6 +198,21 @@ export default function App() {
       </div>
 
       <StatusBar anchorName={anchorName} />
+
+      {/* Reminder toast */}
+      {reminder && (
+        <div className="fixed bottom-16 right-4 z-50 max-w-xs bg-anchor-brand text-white px-4 py-3 rounded-xl shadow-lg flex items-start gap-3 animate-fade-in">
+          <span className="text-lg leading-none mt-0.5">⏰</span>
+          <div className="flex-1">
+            <p className="text-xs font-semibold uppercase tracking-wide opacity-70 mb-0.5">Reminder</p>
+            <p className="text-sm">{reminder}</p>
+          </div>
+          <button
+            onClick={() => setReminder(null)}
+            className="opacity-60 hover:opacity-100 text-sm leading-none"
+          >✕</button>
+        </div>
+      )}
     </div>
   )
 }

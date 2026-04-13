@@ -2,7 +2,7 @@
 
 // Generates startup brief on every boot: last session topic + open threads + this week.
 
-const { ollamaCall } = require('./ollama-manager')
+const { call: llmCall } = require('./llm')
 const { readSession, readMemory, readFile } = require('./vault')
 const { logError } = require('./health')
 
@@ -23,7 +23,7 @@ async function generateStartupBrief(vaultPath) {
     const when = days === 0 ? 'earlier today'
       : days === 1 ? 'yesterday' : `${days} days ago`
 
-    const brief = await ollamaCall([{
+    const brief = await llmCall([{
       role: 'system',
       content: `Generate a startup brief. Direct, specific, under 120 words. No pleasantries. No "Welcome back!".
 
