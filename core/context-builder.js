@@ -67,7 +67,7 @@ function reindexNote(vaultPath) {
 
 // ── Context assembly ──────────────────────────────────────────────────────────
 
-function buildVaultContext(query, topK = 5) {
+function buildVaultContext(query, topK = 3) {
   if (!searchIndex || !query) return ''
   const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 3)
   let candidates = []
@@ -77,7 +77,8 @@ function buildVaultContext(query, topK = 5) {
 
   return candidates
     .map(r => ({
-      text:  `### ${r.name}\n${r.content}`,
+      // Cap each note snippet to 400 chars — enough signal, less noise for small model
+      text:  `### ${r.name}\n${r.content.slice(0, 400)}`,
       score: queryWords.filter(w =>
         (r.content + ' ' + r.name).toLowerCase().includes(w)
       ).length,
@@ -182,6 +183,30 @@ function buildRecallContext(query, vaultPath) {
   } catch { return '' }
 }
 
+// Extract just the behavioral rules from identity.md, skipping the header/name section.
+// This avoids feeding the 3B model a wall of text before it sees who the user is.
+function extractBehaviorRules(identityContent) {
+  if (!identityContent) return ''
+  // Pull everything from "## How I behave" onward, or fall back to full content
+  const match = identityContent.match(/## How I behave[\s\S]+/)
+  return match ? match[0].trim() : ''
+}
+
+// Build a compact profile block — goes FIRST in the system prompt so the 3B
+// model primes on real user facts before anything else.
+function buildProfileBlock(vaultPath) {
+  try {
+    const m = readMemory(vaultPath)
+    const lines = [
+      `You are Anchor, a private AI assistant for ${m.userName || 'the user'}.`,
+      m.role     ? `Their role: ${m.role}.`     : '',
+      m.goals    ? `Their goals: ${m.goals}.`   : '',
+      m.industry ? `Industry: ${m.industry}.`   : '',
+    ].filter(Boolean)
+    return lines.join(' ')
+  } catch { return 'You are Anchor, a private AI assistant.' }
+}
+
 function buildContext(query, vaultPath) {
   try {
     const identity  = readFile(vaultPath, 'identity.md') || ''
@@ -189,7 +214,8 @@ function buildContext(query, vaultPath) {
     const goals     = readFile(vaultPath, 'goals.md') || ''
     const memory    = buildMemoryContext(vaultPath)
     const recall    = buildRecallContext(query, vaultPath)
-    const vault     = buildVaultContext(query)
+    // Reduce vault RAG: topK=3, each result capped — less noise for small model
+    const vault     = buildVaultContext(query, 3)
     const people    = queryMentionsPerson(query, vaultPath)
       ? getPeopleContext(query, vaultPath) : ''
 
@@ -200,17 +226,34 @@ function buildContext(query, vaultPath) {
       if (m) skillContext = `ACTIVE SKILL — ${m.skill.name}:\n${m.skill.instructions}`
     } catch {}
 
+    // Profile block goes FIRST — 3B model primes on real user facts before anything else
+    const profile = buildProfileBlock(vaultPath)
+    // Behavioral rules extracted from identity.md (skip the redundant header section)
+    const rules   = extractBehaviorRules(identity)
+
+    const BEHAVIOR = [
+      'RULES (follow exactly):',
+      '- You are talking to ' + (readMemory(vaultPath).userName || 'the user') + '. Ground every answer in the PROFILE above.',
+      '- Never invent facts about the user (role, industry, hobbies, etc.) that are not in PROFILE or MEMORY.',
+      '- When asked to brainstorm or suggest ideas, generate specific ideas immediately. Do not ask clarifying questions first.',
+      '- Do exactly what was asked — nothing more, nothing less.',
+      '- Never comment on the pattern of questions ("you keep asking", "you\'re rephrasing", etc.). Just answer.',
+      '- Never add tasks, notes, or files unless explicitly told to.',
+      '- Never announce that something was saved or remembered.',
+      '- If the answer is in PROFILE, MEMORY, or VAULT: use it. Do not say "I don\'t have that".',
+    ].join('\n')
+
     return [
-      identity,
-      now       ? `\nCURRENT STATE:\n${now}` : '',
-      goals     ? `\nGOALS:\n${goals}` : '',
-      memory    ? `\nMEMORY:\n${memory}` : '',
-      recall    ? `\nCONVERSATION HISTORY:\n${recall}` : '',
-      people    ? `\nPEOPLE:\n${people}` : '',
+      profile,           // WHO the user is — first, highest attention
+      BEHAVIOR,          // HOW to behave — second, locked in early
+      now       ? `\nCURRENT STATE:\n${now.slice(0, 800)}` : '',
+      goals     ? `\nGOALS:\n${goals.slice(0, 600)}`       : '',
+      memory    ? `\nMEMORY:\n${memory}`                   : '',
+      recall    ? `\nCONVERSATION HISTORY:\n${recall}`     : '',
+      people    ? `\nPEOPLE:\n${people}`                   : '',
       skillContext ? `\n${skillContext}` : '',
-      vault     ? `\nVAULT:\n${vault}` : '',
-      '\nPRIVACY: Closed local system. Nothing leaves this machine.',
-      '\nBEHAVIOR RULES — non-negotiable:\n- Do exactly what was asked. Nothing more.\n- Answer from PROFILE and MEMORY first — if the answer is there, use it directly.\n- Never say "I don\'t have that" when the answer is in PROFILE, MEMORY, or VAULT above.\n- Never speculate about why the user is asking something. Never say "this seems like a test" or comment on the pattern of their questions. Just answer.\n- Never add items to lists, logs, files, or todos unless explicitly instructed.\n- Never announce that something was saved, remembered, or logged unless the user asked.\n- If the user shares a personal fact, acknowledge it naturally — the system handles memory silently.\n- Minimum action principle: only include what was explicitly asked. No scope expansion.\n- After completing something that could be extended, offer once: "Want me to add more?" — never add without asking.',
+      vault     ? `\nVAULT:\n${vault}`  : '',
+      rules     ? `\nIDENTITY RULES:\n${rules.slice(0, 500)}` : '',
     ].filter(Boolean).join('\n')
 
   } catch (e) {
