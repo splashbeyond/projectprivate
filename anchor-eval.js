@@ -51,6 +51,9 @@ const INTENT_TESTS = [
   { msg: 'recall our chat about the pitch deck',  expect: 'recall_topic' },
   { msg: 'what happened today',                   expect: 'calendar_lookup' },
   { msg: 'what happened yesterday',               expect: 'calendar_lookup' },
+  { msg: 'goal: become a top performer',           expect: 'goal_add' },
+  { msg: 'show my goals',                          expect: 'goal_list' },
+  { msg: 'goal done: hit my sales quota',          expect: 'goal_done' },
   // Should NOT fire (false positive regressions)
   { msg: 'when do i need to send an email to st pete?', expect: 'task_query' },   // was misfiring as todo_add
   { msg: 'what do you think i need to work on?',  expect: null },                 // "i need to" should NOT add task
@@ -63,6 +66,7 @@ const CONTEXT_TESTS = [
   { msg: "what's my primary goal",    mustContain: ['Goals:', 'making money'] },
   { msg: "what's my name",            mustContain: ['Name: Davis'] },
   { msg: "what do i do for work",     mustContain: ['Role:'] },
+  { msg: "what are my goals",         mustContain: ['Goals', 'Long term'] },
 ]
 
 // Response quality tests (model calls — skipped with --quick)

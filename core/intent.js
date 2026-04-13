@@ -279,6 +279,74 @@ const INTENTS = [
     },
   },
   {
+    name: 'goal_add',
+    patterns: [
+      /^(?:add )?(?:a )?(?:new )?goal[:\s]+(?!done)(.+)/i,
+      /^i want to (.+) (?:as a goal|goal)/i,
+      /^(?:my |a )?(?:long.term|medium.term|short.term) goal[:\s]+(.+)/i,
+    ],
+    handle: (m, vaultPath) => {
+      const goal  = m[1].trim()
+      const today = new Date().toISOString().split('T')[0]
+      const p     = path.join(vaultPath, 'goals.md')
+      if (!fs.existsSync(p)) fs.writeFileSync(p, '# Goals\n\n## Short term\n\n## Completed\n')
+      // Detect timeframe from original match
+      const raw = m[0].toLowerCase()
+      const section = raw.includes('long') ? '## Long term'
+        : raw.includes('medium') ? '## Medium term'
+        : '## Short term'
+      let content = fs.readFileSync(p, 'utf8')
+      content = content.replace(
+        new RegExp(`(${section}\\n)`),
+        `$1- [ ] ${goal}\n`
+      )
+      fs.writeFileSync(p, content)
+      return `Goal added: "${goal}"`
+    },
+  },
+  {
+    name: 'goal_done',
+    patterns: [
+      /^(?:i )?(?:completed|achieved|reached|hit|finished) (?:my )?goal[:\s]+(.+)/i,
+      /^(?:i )?(?:completed|achieved|reached|hit) (.+) goal/i,
+      /^goal done[:\s]+(.+)/i,
+    ],
+    handle: (m, vaultPath) => {
+      const goal  = m[1].trim()
+      const today = new Date().toISOString().split('T')[0]
+      const p     = path.join(vaultPath, 'goals.md')
+      if (!fs.existsSync(p)) return `goals.md not found.`
+      let content = fs.readFileSync(p, 'utf8')
+      // Mark the checkbox done
+      const rx = new RegExp(`- \\[ \\] (.{0,60}${goal.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}.{0,60})`, 'i')
+      if (rx.test(content)) {
+        content = content.replace(rx, `- [x] $1`)
+        // Move to completed section
+        const doneEntry = `- [x] ${goal} ✓ ${today}`
+        content = content.replace(/## Completed\n/, `## Completed\n${doneEntry}\n`)
+        fs.writeFileSync(p, content)
+        // Also log as a win
+        const winsPath = path.join(vaultPath, 'Notes', 'wins.md')
+        const winsDir  = path.dirname(winsPath)
+        if (!fs.existsSync(winsDir)) fs.mkdirSync(winsDir, { recursive: true })
+        fs.appendFileSync(winsPath, `\n## ${goal}\nDate: ${today}\nType: Goal achieved\n\n---\n`)
+        return `Goal completed and logged as a win: "${goal}"`
+      }
+      return `Couldn't find that goal. Check goals.md to confirm the text.`
+    },
+  },
+  {
+    name: 'goal_list',
+    patterns: [
+      /^(?:show|list|what are) (?:my )?goals?/i,
+      /^what(?:'s| is) (?:on )?my goals? list/i,
+    ],
+    handle: (_, vaultPath) => {
+      const p = path.join(vaultPath, 'goals.md')
+      return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : 'No goals yet. Add one with "goal: [your goal]".'
+    },
+  },
+  {
     name: 'project_new',
     patterns: [
       /(?:start|create|new|kick off) (?:a )?(?:new )?project[:\s]+(.+)/i,

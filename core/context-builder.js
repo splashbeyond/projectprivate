@@ -186,6 +186,7 @@ function buildContext(query, vaultPath) {
   try {
     const identity  = readFile(vaultPath, 'identity.md') || ''
     const now       = readFile(vaultPath, 'now.md') || ''
+    const goals     = readFile(vaultPath, 'goals.md') || ''
     const memory    = buildMemoryContext(vaultPath)
     const recall    = buildRecallContext(query, vaultPath)
     const vault     = buildVaultContext(query)
@@ -202,6 +203,7 @@ function buildContext(query, vaultPath) {
     return [
       identity,
       now       ? `\nCURRENT STATE:\n${now}` : '',
+      goals     ? `\nGOALS:\n${goals}` : '',
       memory    ? `\nMEMORY:\n${memory}` : '',
       recall    ? `\nCONVERSATION HISTORY:\n${recall}` : '',
       people    ? `\nPEOPLE:\n${people}` : '',
