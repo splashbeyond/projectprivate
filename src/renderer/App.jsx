@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, Component } from 'react'
 import Onboarding from './Onboarding'
 import Chat       from './Chat'
 import Editor     from './Editor'
@@ -175,13 +175,35 @@ export default function App() {
               onOpenNote={openNote}
             />
           )}
-          {mode === 'settings' && <Settings />}
+          {mode === 'settings' && <ViewBoundary name="Settings"><Settings /></ViewBoundary>}
         </main>
       </div>
 
       <StatusBar anchorName={anchorName} />
     </div>
   )
+}
+
+class ViewBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null } }
+  static getDerivedStateFromError(error) { return { error } }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex flex-col items-center justify-center flex-1 gap-3 text-anchor-body">
+          <p className="text-sm font-medium text-anchor-heading">{this.props.name} failed to load</p>
+          <p className="text-xs font-mono opacity-60">{this.state.error.message}</p>
+          <button
+            onClick={() => this.setState({ error: null })}
+            className="text-xs px-3 py-1.5 rounded-lg border border-anchor-border hover:text-anchor-heading transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
 }
 
 function BootScreen() {

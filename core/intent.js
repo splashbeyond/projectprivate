@@ -69,10 +69,13 @@ const INTENTS = [
       /^put (.+) on my (?:list|todos)/i,
     ],
     handle: (m, vaultPath) => {
-      const task = m[1].trim()
-      const p    = path.join(vaultPath, 'now.md')
+      const task  = m[1].trim()
+      const p     = path.join(vaultPath, 'now.md')
       if (fs.existsSync(p)) {
         let c = fs.readFileSync(p, 'utf8')
+        // Dedupe — skip if a similar task already exists (case-insensitive, first 30 chars)
+        const key = task.toLowerCase().slice(0, 30)
+        if (c.toLowerCase().includes(key)) return `Already on your list: "${task}"`
         c = c.replace('## This week\n', `## This week\n- [ ] ${task}\n`)
         fs.writeFileSync(p, c)
       }
