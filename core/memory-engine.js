@@ -52,20 +52,27 @@ class MemoryEngine {
     ollamaCall([{
       role: 'system',
       content: `Extract entities relevant to the user's real work.
-Return JSON: {people:[], projects:[], decisions:[], deadlines:[]}.
+Return JSON: {people:[{name,role?,company?}], projects:[], decisions:[], deadlines:[]}.
 Rules:
-- People: real contacts only. Not celebrities or historical figures.
+- People: real contacts only (not celebrities, not historical figures). Include role/company if mentioned.
 - Projects: only active or planned real work.
 - Decisions: only definitive statements, not hypotheticals.
 - Deadlines: only specific dates tied to specific tasks.
-- When uncertain: empty array.`,
-    }, { role: 'user', content: text }], 150)
+- When uncertain: empty array.
+Example people: [{"name":"John Smith","role":"VP Sales","company":"Acme"}]`,
+    }, { role: 'user', content: text }], 180)
     .then(result => {
       const entities = safeParseJSON(result, {})
       if (entities.people?.length) {
         entities.people
-          .filter(p => typeof p === 'string' && p.length > 2 && p.length < 60)
-          .forEach(p => this.upsertPerson(p))
+          .filter(p => p && (typeof p === 'string' ? p.length > 2 : p.name?.length > 2))
+          .forEach(p => {
+            if (typeof p === 'string') {
+              this.upsertPerson(p, {})
+            } else {
+              this.upsertPerson(p.name, { role: p.role, company: p.company })
+            }
+          })
       }
       if (entities.projects?.length) {
         entities.projects.filter(p => typeof p === 'string')
@@ -208,14 +215,38 @@ userDefined (array — keep ALL existing, add new only if found).`,
     return fs.readFileSync(path.join(digestDir, files[0]), 'utf8')
   }
 
-  upsertPerson(name) {
+  upsertPerson(name, { role = '', company = '' } = {}) {
     try {
+      if (!name || name.length < 2 || name.length > 80) return
       const p       = path.join(this.vaultPath, 'people.md')
       const content = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '# People\n\n'
-      if (content.includes(`## ${name}`)) return
-      const today = new Date().toISOString().split('T')[0]
+      const today   = new Date().toISOString().split('T')[0]
+
+      if (content.includes(`## ${name}`)) {
+        // Update role/company if we now have new info and the field is still blank
+        if ((role || company) && fs.existsSync(p)) {
+          let updated = fs.readFileSync(p, 'utf8')
+          if (role && updated.match(new RegExp(`## ${name}[\\s\\S]+?Role:\\s*\\n`))) {
+            updated = updated.replace(
+              new RegExp(`(## ${name}[\\s\\S]+?Role:)\\s*\\n`),
+              `$1 ${role}\n`
+            )
+          }
+          if (company && updated.match(new RegExp(`## ${name}[\\s\\S]+?Company:\\s*\\n`))) {
+            updated = updated.replace(
+              new RegExp(`(## ${name}[\\s\\S]+?Company:)\\s*\\n`),
+              `$1 ${company}\n`
+            )
+          }
+          fs.writeFileSync(p, updated)
+        }
+        return
+      }
+
+      const roleLine    = role    ? `Role: ${role}\n`    : 'Role:\n'
+      const companyLine = company ? `Company: ${company}\n` : 'Company:\n'
       fs.appendFileSync(p,
-        `\n## ${name}\nFirst mentioned: ${today}\nKey facts:\n- \n\n---\n`
+        `\n## ${name}\n${roleLine}${companyLine}First mentioned: ${today}\nKey facts:\n- \n\n---\n`
       )
     } catch {}
   }
