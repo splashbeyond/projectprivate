@@ -103,13 +103,40 @@ const INTENTS = [
   {
     name: 'todo_list',
     patterns: [
-      /what(?:'s| is) on my (?:list|todos|tasks)/i,
-      /show (?:me )?my (?:todos|tasks|list)/i,
-      /what do i need to do/i,
+      /^what(?:'s| is) on my (?:list|todos|tasks)/i,
+      /^show (?:me )?my (?:todos|tasks|list)/i,
+      /^what do i need to do/i,
     ],
     handle: (_, vaultPath) => {
       const p = path.join(vaultPath, 'now.md')
       return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : 'No tasks yet.'
+    },
+  },
+  {
+    name: 'task_query',
+    patterns: [
+      /^when do i need to (.+)/i,
+      /^when (?:do i|should i|am i supposed to) (.+)/i,
+      /^(?:do i have|is there) (?:a |an )?(?:task|reminder|note) (?:about|for|to) (.+)/i,
+      /^(?:is|are) (.+) on my (?:list|todos|tasks)/i,
+      /^have i (?:added|noted|saved) (.+)/i,
+    ],
+    handle: (m, vaultPath) => {
+      const query    = m[1].trim().toLowerCase()
+      const keywords = query.split(/\s+/).filter(w => w.length > 2)
+      const p        = path.join(vaultPath, 'now.md')
+
+      if (!fs.existsSync(p)) return `Nothing on your list yet.`
+
+      const lines   = fs.readFileSync(p, 'utf8').split('\n')
+      const matches = lines.filter(line => {
+        if (!line.includes('- [ ]') && !line.includes('- [x]')) return false
+        const lower = line.toLowerCase()
+        return keywords.some(w => lower.includes(w))
+      })
+
+      if (!matches.length) return `Nothing on your list matching "${m[1].trim()}".`
+      return matches.map(l => l.trim()).join('\n')
     },
   },
   {
