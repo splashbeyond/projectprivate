@@ -19,7 +19,7 @@ const CORE = (m) => require(path.join(__dirname, '../../core', m))
 // ── Core modules ──────────────────────────────────────────────────────────────
 const {
   ensureVault, createVault, resetVault, hardResetVault,
-  readNote, writeNote, readVault, watchVault, buildBacklinks,
+  readNote, writeNote, readVault, watchVault, buildBacklinks, rolloverNow,
 } = CORE('vault')
 
 const { buildIndex, loadOrBuildIndex, reindexNote, findRelevant } = CORE('context-builder')
@@ -101,8 +101,9 @@ app.whenReady().then(async () => {
   initCron(VAULT_PATH, mainWindow)
 
   try {
-    // 1. Ensure vault exists
+    // 1. Ensure vault exists, roll over now.md if it's a new day
     ensureVault(VAULT_PATH)
+    rolloverNow(VAULT_PATH)
 
     // 2. Configure LLM adapter, then start Ollama + ensure model
     configureLlm(VAULT_PATH)

@@ -27,7 +27,7 @@ function ensureVault(vaultPath) {
   }
 
   const templates = {
-    'identity.md': `# Identity\n\nI am Anchor. I work for [USER_NAME].\nI run 100% locally. Nothing leaves this machine.\n\n## [USER_NAME]\nRole:\nIndustry:\nCommunication: conversational\n\n## How I behave\n- Answer from vault context first, always\n- Say "I don't have that" rather than guess\n- Never hallucinate dates, numbers, names, or facts\n\n## Confidence rules\nClear evidence: answer directly\nPartial evidence: "Based on [Note], it seems..."\nNo evidence: "I don't have that in my vault"\n\n## Tone\nDirect. Warm. Sound like a colleague.\n\n## Onboarding complete\nfalse`,
+    'identity.md': `# Identity\n\nI am Anchor. I work for [USER_NAME].\nI run 100% locally. Nothing leaves this machine.\n\n## [USER_NAME]\nRole:\nIndustry:\nCommunication: conversational\n\n## How I behave\n- Answer from vault context first, always\n- Say "I don't have that" rather than guess\n- Never hallucinate dates, numbers, names, or facts\n- Do exactly what was asked — nothing more\n- Never add todos, logs, list items, or files unless explicitly asked\n- Never announce that something was saved or remembered unless the user asked\n- Minimum action: only include what the user explicitly mentioned. No extra items, no scope expansion.\n- After completing something that could be extended, ask once: "Want me to add more?" — never assume yes\n- Never offer unsolicited suggestions inline — respond, then offer to help further if relevant\n\n## Confidence rules\nClear evidence: answer directly\nPartial evidence: "Based on [Note], it seems..."\nNo evidence: "I don't have that in my vault"\n\n## Tone\nDirect. Warm. Sound like a colleague.\n\n## Onboarding complete\nfalse`,
     'now.md': `# Now — ${today()}\n\n## This week\n- [ ] Add your first task\n\n## Active projects\n- No active projects yet\n\n## Waiting on\n- Nothing waiting`,
     'people.md': '# People\n\n',
     'skills.md':  `# Skills\n\n---\n\n## daily-briefing\nversion: 1\ncreated: ${today()}\nusageCount: 0\nlastUsed: never\nschedule: none\nparams: none\nautoSuggested: false\n\n### Trigger phrases\nmorning briefing, daily briefing, catch me up, what's today, what should i focus on\n\n### Instructions\n1. Read now.md for today's tasks and priorities\n2. Summarise: top 3 priorities, waiting items, urgent flags\n3. Keep under 150 words\n4. End with: "Where do you want to start?"\n\n### Output\nDisplay inline\n\n### Feedback\nsuccessCount: 0\nfailCount: 0\nlastFeedback: none\n\n---\n`,
@@ -205,6 +205,35 @@ function watchVault(vaultPath, onChange) {
   return watcher
 }
 
+// ── now.md daily rollover ─────────────────────────────────────────────────────
+// Called at boot. If now.md was last written on a different calendar day,
+// carry forward any unchecked tasks into a fresh now.md for today.
+
+function rolloverNow(vaultPath) {
+  try {
+    const p = path.join(vaultPath, 'now.md')
+    if (!fs.existsSync(p)) return
+
+    const todayStr = today()
+    const stat     = fs.statSync(p)
+    const fileDay  = stat.mtime.toISOString().split('T')[0]
+    if (fileDay === todayStr) return   // already current
+
+    const content   = fs.readFileSync(p, 'utf8')
+    // Pull unchecked tasks only — completed ones stay in history
+    const unchecked = content.split('\n')
+      .filter(l => /^- \[ \]/.test(l.trim()))
+      .map(l => l.trim())
+
+    const carryover = unchecked.length
+      ? `\n${unchecked.join('\n')}`
+      : ''
+
+    const fresh = `# Now — ${todayStr}\n\n## This week${carryover}\n\n## Active projects\n\n## Waiting on\n`
+    fs.writeFileSync(p, fresh, 'utf8')
+  } catch (e) { logError('rolloverNow', e) }
+}
+
 // ── Backlinks ─────────────────────────────────────────────────────────────────
 
 function buildBacklinks(vaultPath) {
@@ -226,5 +255,5 @@ module.exports = {
   readFile, readNote, noteExists, writeFile, writeNote, appendNote,
   readVault, getNotesModifiedToday,
   readMemory, writeMemory, readSession, writeSession,
-  watchVault, buildBacklinks,
+  watchVault, buildBacklinks, rolloverNow,
 }

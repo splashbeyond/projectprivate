@@ -12,7 +12,9 @@ async function handleCommand(cmd, args, vaultPath, history) {
   const { readSession }          = require('./session')
   const { readNote, writeNote, noteExists } = require('./vault')
   const { runSkill, teachSkill, listSkills } = require('./skills')
-  const { askAnchor }            = require('./ollama')
+  const { call: llmCall, getModel } = require('./llm')
+  const askAnchor = async (prompt, _history) =>
+    llmCall([{ role: 'user', content: prompt }])
   const today = () => new Date().toISOString().split('T')[0]
 
   switch (cmd) {
@@ -78,14 +80,14 @@ async function handleCommand(cmd, args, vaultPath, history) {
 
       if (sub === 'add') {
         if (!text) return { response: 'Usage: /todo add [task]' }
-        const p = path.join(vaultPath, 'todolist.md')
+        const p = path.join(vaultPath, 'now.md')
         const c = fs.readFileSync(p, 'utf8')
         fs.writeFileSync(p, c.replace('## Today\n', `## Today\n- [ ] ${text}\n`))
         return { response: `Added: "${text}"` }
       }
       if (sub === 'done') {
         if (!text) return { response: 'Usage: /todo done [task]' }
-        const p  = path.join(vaultPath, 'todolist.md')
+        const p  = path.join(vaultPath, 'now.md')
         let c    = fs.readFileSync(p, 'utf8')
         const rx = new RegExp(`- \\[ \\] (.{0,30}${text.slice(0,20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}.{0,30})`, 'i')
         c = c.replace(rx, (_, t) => `- [x] ${t}`)
@@ -93,10 +95,10 @@ async function handleCommand(cmd, args, vaultPath, history) {
         return { response: `Done: "${text}"` }
       }
       if (sub === 'list') {
-        return { response: readNote(vaultPath, 'todolist.md') }
+        return { response: readNote(vaultPath, 'now.md') }
       }
       if (sub === 'prioritise' || sub === 'prioritize') {
-        const content = readNote(vaultPath, 'todolist.md')
+        const content = readNote(vaultPath, 'now.md')
         const resp = await askAnchor(`Suggest the best priority order for today's tasks:\n\n${content}`, history)
         return { response: resp }
       }
@@ -269,7 +271,7 @@ async function handleCommand(cmd, args, vaultPath, history) {
         `Vault:        ${vaultPath}`,
         `Notes:        ${notes.length}`,
         `Memory facts: ${(mem.userDefined || []).length}`,
-        `Model:        llama3.2:3b`,
+        `Model:        ${getModel()}`,
         `Last session: ${ses.lastSession ? ses.lastSession.date + ' — ' + ses.lastSession.topic : 'None'}`,
         `Privacy:      ✓ 100% local — zero data egress`,
       ]

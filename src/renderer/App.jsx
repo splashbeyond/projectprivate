@@ -152,28 +152,34 @@ export default function App() {
 
         <main className="flex-1 flex flex-col overflow-hidden bg-anchor-canvas">
           {mode === 'chat' && (
-            <Chat
-              anchorName={anchorName}
-              greeting={greeting}
-              onOpenNote={openNote}
-              vaultNotes={vaultNotes}
-              activeChat={activeChat}
-              onChatUpdated={handleChatUpdated}
-            />
+            <ViewBoundary name="Chat">
+              <Chat
+                anchorName={anchorName}
+                greeting={greeting}
+                onOpenNote={openNote}
+                vaultNotes={vaultNotes}
+                activeChat={activeChat}
+                onChatUpdated={handleChatUpdated}
+              />
+            </ViewBoundary>
           )}
           {mode === 'edit' && (
-            <Editor
-              note={activeNote}
-              onSave={refreshNotes}
-              onViewNote={(note) => openNote(note, false)}
-            />
+            <ViewBoundary name="Editor">
+              <Editor
+                note={activeNote}
+                onSave={refreshNotes}
+                onViewNote={(note) => openNote(note, false)}
+              />
+            </ViewBoundary>
           )}
           {mode === 'view' && activeNote && (
-            <NoteViewer
-              note={activeNote}
-              onEdit={() => setMode('edit')}
-              onOpenNote={openNote}
-            />
+            <ViewBoundary name="Note Viewer">
+              <NoteViewer
+                note={activeNote}
+                onEdit={() => setMode('edit')}
+                onOpenNote={openNote}
+              />
+            </ViewBoundary>
           )}
           {mode === 'settings' && <ViewBoundary name="Settings"><Settings /></ViewBoundary>}
         </main>
