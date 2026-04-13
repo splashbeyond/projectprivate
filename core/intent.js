@@ -63,7 +63,6 @@ const INTENTS = [
     name: 'todo_add',
     patterns: [
       /^add (?:a )?(?:task|todo)[:\s]+(.+)/i,
-      /^remind me to (.+)/i,
       /^i need to (.+)/i,
       /^don'?t let me forget to (.+)/i,
       /^put (.+) on my (?:list|todos)/i,
