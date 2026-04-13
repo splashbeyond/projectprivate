@@ -108,6 +108,8 @@ function buildMemoryContext(vaultPath) {
       m.userName ? `Name: ${m.userName}` : '',
       m.role     ? `Role: ${m.role}`     : '',
       m.industry ? `Industry: ${m.industry}` : '',
+      m.goals    ? `Goals: ${m.goals}`   : '',
+      m.commStyle ? `Comm style: ${m.commStyle}` : '',
     ].filter(Boolean)
     if (profile.length) parts.push(`PROFILE:\n${profile.join('\n')}`)
 
@@ -206,7 +208,7 @@ function buildContext(query, vaultPath) {
       skillContext ? `\n${skillContext}` : '',
       vault     ? `\nVAULT:\n${vault}` : '',
       '\nPRIVACY: Closed local system. Nothing leaves this machine.',
-      '\nBEHAVIOR RULES — non-negotiable:\n- Do exactly what was asked. Nothing more.\n- Never add items to lists, logs, files, or todos unless explicitly instructed.\n- Never announce that something was saved, remembered, or logged unless the user asked.\n- If the user shares a personal fact (favorite color, preference, opinion, etc.), acknowledge it naturally. The system handles memory silently.\n- Minimum action principle: if the user asks you to create or add something, only include what they explicitly mentioned. Do not fill in extra items, suggest additions inline, or expand scope on your own.\n- After completing a task that could naturally be extended (a list, a plan, a note), offer once: "Want me to add more?" — do not add more without asking.\n- Never assume the user wants suggestions unless they ask for them.',
+      '\nBEHAVIOR RULES — non-negotiable:\n- Do exactly what was asked. Nothing more.\n- Answer from PROFILE and MEMORY first — if the answer is there, use it directly.\n- Never say "I don\'t have that" when the answer is in PROFILE, MEMORY, or VAULT above.\n- Never speculate about why the user is asking something. Never say "this seems like a test" or comment on the pattern of their questions. Just answer.\n- Never add items to lists, logs, files, or todos unless explicitly instructed.\n- Never announce that something was saved, remembered, or logged unless the user asked.\n- If the user shares a personal fact, acknowledge it naturally — the system handles memory silently.\n- Minimum action principle: only include what was explicitly asked. No scope expansion.\n- After completing something that could be extended, offer once: "Want me to add more?" — never add without asking.',
     ].filter(Boolean).join('\n')
 
   } catch (e) {
