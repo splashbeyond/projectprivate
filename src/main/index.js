@@ -297,7 +297,7 @@ ipcMain.handle('anchor:session-get', () => readSession(VAULT_PATH))
 
 // ── IPC: Web monitor (stub — not in this build scope) ─────────────────────────
 
-ipcMain.handle('anchor:monitor-sources',  () => [])
+ipcMain.handle('anchor:monitor-sources',  () => ({ feeds: [], urls: [] }))
 ipcMain.handle('anchor:monitor-add-feed', () => ({ ok: true }))
 ipcMain.handle('anchor:monitor-add-url',  () => ({ ok: true }))
 ipcMain.handle('anchor:monitor-remove',   () => ({ ok: true }))

@@ -43,12 +43,12 @@ const INTENTS = [
   {
     name: 'remember',
     patterns: [
-      /remember (?:that )?(.+)/i,
-      /don'?t forget (?:that )?(.+)/i,
-      /make a note (?:that )?(.+)/i,
-      /keep in mind (?:that )?(.+)/i,
-      /save this[:\s]+(.+)/i,
-      /note that (.+)/i,
+      /^remember (?:that )?(.+)/i,
+      /^don'?t forget (?:that )?(.+)/i,
+      /^make a note (?:that )?(.+)/i,
+      /^keep in mind (?:that )?(.+)/i,
+      /^save this[:\s]+(.+)/i,
+      /^note that (.+)/i,
     ],
     handle: (m, vaultPath) => {
       const fact = m[1].trim()
@@ -62,11 +62,11 @@ const INTENTS = [
   {
     name: 'todo_add',
     patterns: [
-      /add (?:a )?(?:task|todo)[:\s]+(.+)/i,
-      /remind me to (.+)/i,
-      /i need to (.+)/i,
-      /don'?t let me forget to (.+)/i,
-      /put (.+) on my (?:list|todos)/i,
+      /^add (?:a )?(?:task|todo)[:\s]+(.+)/i,
+      /^remind me to (.+)/i,
+      /^i need to (.+)/i,
+      /^don'?t let me forget to (.+)/i,
+      /^put (.+) on my (?:list|todos)/i,
     ],
     handle: (m, vaultPath) => {
       const task = m[1].trim()
@@ -82,9 +82,9 @@ const INTENTS = [
   {
     name: 'todo_done',
     patterns: [
-      /(?:i )?(?:finished|completed|done with) (.+)/i,
-      /mark (.+) (?:as )?done/i,
-      /just finished (.+)/i,
+      /^(?:i )?(?:finished|completed|done with) (.+)/i,
+      /^mark (.+) (?:as )?done/i,
+      /^just finished (.+)/i,
     ],
     handle: (m, vaultPath) => {
       const task = m[1].trim()
@@ -115,10 +115,10 @@ const INTENTS = [
   {
     name: 'idea',
     patterns: [
-      /(?:i have |had )?an idea[:\s]+(.+)/i,
-      /idea[:\s]+(.+)/i,
-      /just thought of (.+)/i,
-      /what if (?:we |i )?(.+)\?/i,
+      /^(?:i have |had )?an idea[:\s]+(.+)/i,
+      /^idea[:\s]+(.+)/i,
+      /^just thought of (.+)/i,
+      /^what if (?:we |i )?(.+)\?/i,
     ],
     handle: (m, vaultPath) => {
       const idea  = m[1].trim()
@@ -135,9 +135,9 @@ const INTENTS = [
   {
     name: 'win',
     patterns: [
-      /(?:i )?(?:just )?(?:closed|landed|got|signed|shipped|won) (.+)/i,
-      /big win[:\s]+(.+)/i,
-      /log (?:a )?win[:\s]+(.+)/i,
+      /^(?:i )?(?:just )?(?:closed|landed|signed|shipped|won) (.+)/i,
+      /^big win[:\s]+(.+)/i,
+      /^log (?:a )?win[:\s]+(.+)/i,
     ],
     handle: (m, vaultPath) => {
       const win   = m[1].trim()
